@@ -1,3 +1,4 @@
+import { GoogleTagManager } from "@next/third-parties/google";
 import "./globals.css";
 
 export const metadata = {
@@ -41,8 +42,13 @@ export default function RootLayout({ children }) {
           </>
         ) : null}
         <script src="/script.js" defer></script>
+
       </head>
-      <body>{children}</body>
+      <body>
+        {/* <GTMPageViewTracker/> */}
+        {children}
+        <GoogleTagManager gtmId={'GTM-TZP6P4V4'} />
+        </body>
     </html>
   );
 }

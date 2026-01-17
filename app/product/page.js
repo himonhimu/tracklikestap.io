@@ -2,10 +2,72 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useGTMTracking } from "../../lib/useGTMTracking";
+
+// Generate unique event ID (UUID v4)
+function generateEventId() {
+  if (typeof window !== "undefined" && window.crypto && window.crypto.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  // Fallback UUID generation
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// Send event to Facebook Pixel with event_id
+function sendToFacebookPixel(eventName, eventData, eventId) {
+  if (typeof window !== "undefined" && window.fbq) {
+    const fbPixelId = process.env.NEXT_PUBLIC_FB_PIXEL_ID;
+    if (fbPixelId) {
+      // Map event names to Facebook Pixel event names
+      const fbEventMap = {
+        PageView: "PageView",
+        AddToCart: "AddToCart",
+        Purchase: "Purchase",
+      };
+      
+      const fbEventName = fbEventMap[eventName] || eventName;
+      
+      // Prepare Facebook Pixel parameters
+      let params = {};
+      if (eventName === "AddToCart" && eventData.product) {
+        params = {
+          content_name: eventData.product.name,
+          content_ids: [eventData.product.id],
+          content_type: "product",
+          value: eventData.product.price,
+          currency: eventData.product.currency || "USD",
+        };
+      } else if (eventName === "Purchase" && eventData.products) {
+        const totalValue = eventData.value || eventData.products.reduce(
+          (sum, p) => sum + p.price * (p.quantity || 1),
+          0
+        );
+        params = {
+          content_ids: eventData.products.map((p) => p.id),
+          content_type: "product",
+          value: totalValue,
+          currency: eventData.currency || "USD",
+          num_items: eventData.products.reduce(
+            (sum, p) => sum + (p.quantity || 1),
+            0
+          ),
+        };
+      }
+      
+      // Send to Facebook Pixel with event_id for deduplication
+      window.fbq("track", fbEventName, params, { eventID: eventId });
+    }
+  }
+}
 
 export default function ProductPage() {
   const [addedToCart, setAddedToCart] = useState(false);
   const [purchased, setPurchased] = useState(false);
+  const { trackAddToCart, trackPurchase } = useGTMTracking();
 
   const product = {
     id: "prod_123",
@@ -18,6 +80,13 @@ export default function ProductPage() {
 
   const trackEvent = async (eventName, eventData = {}) => {
     try {
+      // Generate unique event ID for deduplication
+      const eventId = generateEventId();
+      
+      // Send to Facebook Pixel with event_id
+      sendToFacebookPixel(eventName, eventData, eventId);
+      
+      // Send to server API with event_id
       await fetch("/api/event", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -27,6 +96,7 @@ export default function ProductPage() {
           referrer: document.referrer || null,
           ua: navigator.userAgent,
           ts: Date.now(),
+          event_id: eventId, // Include event_id for deduplication
           ...eventData,
         }),
       });
@@ -36,6 +106,7 @@ export default function ProductPage() {
   };
 
   const handleAddToCart = () => {
+    // trackAddToCart(product, 1);
     trackEvent("AddToCart", {
       product: {
         id: product.id,
@@ -50,6 +121,7 @@ export default function ProductPage() {
   };
 
   const handlePurchase = () => {
+    // trackPurchase("John Doe", "1234567890", [product], { insertId: "123" });
     trackEvent("Purchase", {
       value: product.price,
       currency: product.currency,

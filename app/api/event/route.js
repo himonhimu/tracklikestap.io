@@ -28,19 +28,20 @@ export async function POST(req) {
     products: body.products || null,
     value: body.value || null,
     currency: body.currency || null,
+    event_id: body.event_id || null, // Event ID for deduplication
     ipAddress,
     deviceType,
   };
 
-  console.log("Analytics event:", {
-    type: event.event,
-    path: event.path,
-    ip: ipAddress,
-    device: deviceType,
-    ...(event.product && { product: event.product }),
-    ...(event.products && { products: event.products }),
-    ...(event.value && { value: event.value, currency: event.currency }),
-  });
+  // console.log("Analytics event:", {
+  //   type: event.event,
+  //   path: event.path,
+  //   ip: ipAddress,
+  //   device: deviceType,
+  //   ...(event.product && { product: event.product }),
+  //   ...(event.products && { products: event.products }),
+  //   ...(event.value && { value: event.value, currency: event.currency }),
+  // });
 
   // Get geolocation (async, don't block)
   let geolocation = null;
@@ -135,7 +136,7 @@ export async function POST(req) {
   // Send to Facebook Conversions API (server-side tracking)
   try {
     const res = await sendFbEvent(event, req);
-    console.log("[analytics] FB Pixel response:", res);
+    // console.log("[analytics] FB Pixel response:", res);
   } catch (err) {
     console.error("[analytics] Failed to send FB Pixel event:", err);
   }
