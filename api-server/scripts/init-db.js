@@ -1,9 +1,13 @@
 import mysql from "mysql2/promise";
 import { config } from "dotenv";
 import { resolve } from "path";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
 
 // Load environment variables from .env.local
-config({ path: resolve(process.cwd(), ".env.local") });
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+config({ path: resolve(__dirname, "..", ".env") });
 
 const HOST = process.env.MYSQL_HOST || "127.0.0.1";
 const PORT = process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : 3306;

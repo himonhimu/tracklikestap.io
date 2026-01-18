@@ -3,7 +3,7 @@
  * Use these in your dashboard or API routes
  */
 
-import { getDb } from "./db";
+import { getDb } from "./db.js";
 
 /**
  * Get total unique users count

@@ -12,9 +12,10 @@ export function getDb() {
       MYSQL_DATABASE,
     } = process.env;
 
+    // Only warn about missing vars and do not log their values.
     if (!MYSQL_HOST || !MYSQL_USER || !MYSQL_DATABASE) {
       console.warn(
-        "[analytics] Missing MySQL env vars (MYSQL_HOST, MYSQL_USER, MYSQL_DATABASE). Skipping DB logging."
+        "[server_database] Missing MySQL env vars (MYSQL_HOST, MYSQL_USER, MYSQL_DATABASE). Skipping DB logging."
       );
       return null;
     }
@@ -32,4 +33,3 @@ export function getDb() {
 
   return pool;
 }
-

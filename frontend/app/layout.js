@@ -6,12 +6,43 @@ export const metadata = {
   description: "Minimal Next.js Analytics",
 };
 
-const FB_PIXEL_ID = process.env.NEXT_PUBLIC_FB_PIXEL_ID;
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-export default function RootLayout({ children }) {
+export default async function RootLayout({ children }) {
+  // Use ONLY the pixel ID from API server (single source of truth)
+  // DO NOT use NEXT_PUBLIC_FB_PIXEL_ID to avoid double pixels
+  let FB_PIXEL_ID = null; 
+   try {
+    if (API_URL) {
+      const response = await fetch(`${API_URL}/get-pixel`, {
+        cache: 'no-store', // Always fetch fresh
+      });
+      // console.log("[layout] response:", response);
+      if (response.ok) {
+        const data = await response.json();
+        FB_PIXEL_ID = data.pixel;
+      }
+    }
+  } catch (err) {
+    console.warn("[layout] Failed to fetch pixel ID from API:", err);
+    // If API is not available, don't load any pixel (avoid double pixels)
+  }
+  console.log("[layout] FB_PIXEL_ID:", FB_PIXEL_ID);
+  
   return (
     <html lang="en">
       <head>
+        {/* Inject API URL for client-side scripts */}
+        {API_URL && (
+          <>
+            <meta name="next-public-api-url" content={API_URL} />
+            <script
+              dangerouslySetInnerHTML={{
+                __html: `window.NEXT_PUBLIC_API_URL = ${JSON.stringify(API_URL)};`,
+              }}
+            />
+          </>
+        )}
         {FB_PIXEL_ID ? (
           <>
             <script
@@ -25,7 +56,9 @@ export default function RootLayout({ children }) {
                   t.src='https://connect.facebook.net/en_US/fbevents.js';
                   s=b.getElementsByTagName(e)[0];
                   s.parentNode.insertBefore(t,s)}(window, document,'script');
-                  fbq('init', '${FB_PIXEL_ID}');
+                 fbq('init', '${FB_PIXEL_ID}');
+                  window._fbPixelInitialized = '${FB_PIXEL_ID}';
+                  console.log('[FB Pixel] ✅ Initialized with ID: ${FB_PIXEL_ID}');
                   // PageView tracking is handled server-side via Conversions API
                 `,
               }}
@@ -47,7 +80,7 @@ export default function RootLayout({ children }) {
       <body>
         {/* <GTMPageViewTracker/> */}
         {children}
-        <GoogleTagManager gtmId={'GTM-TZP6P4V4'} />
+        {/* <GoogleTagManager gtmId={'GTM-TZP6P4V4'} /> */}
         </body>
     </html>
   );

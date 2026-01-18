@@ -1,5 +1,5 @@
 {
-  "name": "tracklikestap.io",
+  "name": "tracklikestap-frontend",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -10,9 +10,6 @@
   },
   "dependencies": {
     "@next/third-parties": "^16.1.3",
-    "dotenv": "^16.4.5",
-    "moment": "^2.30.1",
-    "mysql2": "^3.16.0",
     "next": "^16.1.3",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"

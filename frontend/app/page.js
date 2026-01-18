@@ -27,7 +27,7 @@ export default function Home() {
             <h2 className="font-semibold text-blue-900 mb-2">📊 How it works</h2>
             <p className="text-sm text-blue-800">
               Open your browser DevTools → Network tab. Navigate between pages
-              and you&apos;ll see POST requests to <code className="bg-blue-100 px-1 rounded-sm">/api/event</code>.
+              and you&apos;ll see POST requests to the API server endpoint.
               Check the console for logged analytics events.
             </p>
           </div>
