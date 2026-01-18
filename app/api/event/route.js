@@ -83,7 +83,24 @@ export async function POST(req) {
         ]
       );
 
-      // Track unique user
+      let exists = false;
+  try {
+    const db = getDb?.();
+    if (db) {
+      const [rows] = await db.execute(
+        "SELECT 1 FROM unique_users WHERE ip_address = ? LIMIT 1",
+        [ipAddress]
+      );
+      if (rows && rows.length > 0) {
+        exists = true;
+      }
+    }
+  } catch (err) {
+    console.error("[utils] Failed to check IP existence in DB:", err);
+    // If DB fails, act as if IP does not exist to be safe
+  }
+      
+     if (!exists) {
       if (geolocation) {
         await db.execute(
           `INSERT INTO unique_users (
@@ -128,7 +145,16 @@ export async function POST(req) {
           [ipAddress, deviceType, userAgent]
         );
       }
-    }
+     }else{
+      await db.execute(
+        `UPDATE unique_users SET
+          last_seen = CURRENT_TIMESTAMP,
+          visit_count = visit_count + 1
+        WHERE ip_address = ?`,
+        [ipAddress]
+      );
+     }
+     }
   } catch (err) {
     console.error("[analytics] Failed to insert event into MySQL:", err);
   }
