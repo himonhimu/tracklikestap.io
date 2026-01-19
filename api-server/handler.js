@@ -44,6 +44,8 @@ export async function processEvent(eventData, req) {
     path: eventData.path || null,
     referrer: eventData.referrer || null,
     ua: userAgent,
+    email: eventData.email || null,
+    phone: eventData.phone || null,
     ts: eventData.ts || Date.now(),
     event: eventData.event || "PageView", // Event type: PageView, AddToCart, Purchase
     product: eventData.product || null,

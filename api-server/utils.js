@@ -97,9 +97,10 @@ export function getClientIp(req) {
       // console.log("[utils] ✅ Extracted IP from x-forwarded-for:", ip, "(raw header:", xForwardedFor + ")");
       return ip;
     }
-  } else {
-    console.log("[utils] ⚠️ No x-forwarded-for header found");
   }
+  // else {
+  //   // console.log("[utils] ⚠️ No x-forwarded-for header found");
+  // }
 
   // Priority 2: x-real-ip
   const xRealIp = getHeaderValue("x-real-ip");

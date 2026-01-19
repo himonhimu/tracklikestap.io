@@ -1,7 +1,9 @@
 /**
  * Facebook Conversions API - Server-side tracking
- * Similar to Stape.io server-side tracking
+ * Implements Facebook's Parameter Builder for improved Click ID (fbc) parameter coverage
  * Framework-agnostic implementation
+ *
+ * See: https://developers.facebook.com/docs/marketing-api/conversions-api/using-the-api/parameter-builder
  */
 
 import { createHash } from 'crypto';
@@ -10,11 +12,9 @@ import { createHash } from 'crypto';
  * Extract headers from request (works with Next.js Request or standard request objects)
  */
 function getHeader(req, headerName) {
-  // For Fetch API or Next.js Request object
   if (req && typeof req.headers?.get === "function") {
     return req.headers.get(headerName);
   }
-  // For Node.js/Express.js headers object (object, lower/upper/mixed case)
   if (req && req.headers) {
     const h =
       req.headers[headerName] ??
@@ -71,6 +71,7 @@ function getFbpFromCookies(req) {
     return null;
   }
 }
+
 
 /**
  * Extract Facebook Click ID (_fbc) from cookies
@@ -269,6 +270,7 @@ export async function sendFbEvent(eventData, req) {
     }
 
     // Optionally provide PII for matching, hashed
+    //  console.log("[em, ph]", eventData.email, eventData.phone);
     if (eventData.email) {
       const hashedEmail = hashString(eventData.email);
       if (hashedEmail) userData.em = hashedEmail;
