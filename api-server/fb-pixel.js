@@ -317,9 +317,9 @@ export async function sendFbEvent(eventData, req) {
       body: JSON.stringify(payload),
     });
 
-    if (payload?.data?.[0]?.event_name === "Purchase") {
-      console.log(payload.data);
-    }
+    // if (payload?.data?.[0]?.event_name === "Purchase") {
+    //   console.log(payload.data);
+    // }
 
     if (!response.ok) {
       const errorText = await response.text();

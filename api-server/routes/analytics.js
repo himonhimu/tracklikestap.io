@@ -60,7 +60,8 @@ router.get("/users/by-location", async (req, res) => {
 router.get("/events/counts", async (req, res) => {
   try {
     const data = await getEventCounts();
-    res.json({ data });
+    // console.log(data);
+    res.json({ ...data });
   } catch (err) {
     console.error("[api/analytics] Failed to get event counts:", err);
     res.status(500).json({ error: "Failed to get event counts" });

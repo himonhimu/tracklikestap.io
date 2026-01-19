@@ -79,7 +79,11 @@ export async function getEventCounts() {
        FROM events 
        GROUP BY event_type`
     );
-    return rows;
+    const totalCount = rows.reduce((acc, row) => acc + row.count, 0);
+    return {
+      data: rows,
+      totalCount: totalCount
+    };
   } catch (err) {
     console.error("[analytics] Failed to get event counts:", err);
     return null;
@@ -99,8 +103,7 @@ export async function getPurchaseEvents(limit = 50) {
        FROM events 
        WHERE event_type = 'Purchase'
        ORDER BY created_at DESC
-       LIMIT ?`,
-      [limit]
+       LIMIT ${limit}`
     );
     return rows;
   } catch (err) {
@@ -122,8 +125,7 @@ export async function getAddToCartEvents(limit = 50) {
        FROM events 
        WHERE event_type = 'AddToCart'
        ORDER BY created_at DESC
-       LIMIT ?`,
-      [limit]
+       LIMIT ${limit}`,
     );
     return rows;
   } catch (err) {
@@ -144,8 +146,7 @@ export async function getRecentUniqueUsers(limit = 50) {
       `SELECT ip_address, device_type, country, city, district, visit_count, last_seen
        FROM unique_users 
        ORDER BY last_seen DESC
-       LIMIT ?`,
-      [limit]
+       LIMIT ${limit}`,
     );
     return rows;
   } catch (err) {
