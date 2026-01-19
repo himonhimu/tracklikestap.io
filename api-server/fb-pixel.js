@@ -10,40 +10,43 @@ import { createHash } from 'crypto';
  * Extract headers from request (works with Next.js Request or standard request objects)
  */
 function getHeader(req, headerName) {
-  if (req && typeof req.headers.get === "function") {
-    // Next.js Request object
+  // For Fetch API or Next.js Request object
+  if (req && typeof req.headers?.get === "function") {
     return req.headers.get(headerName);
   }
+  // For Node.js/Express.js headers object (object, lower/upper/mixed case)
   if (req && req.headers) {
-    // Standard headers object
-    const header = req.headers[headerName] || 
-                   req.headers[headerName.toLowerCase()] ||
-                   req.headers[headerName.toUpperCase()];
-    return Array.isArray(header) ? header[0] : header;
+    const h =
+      req.headers[headerName] ??
+      req.headers[headerName.toLowerCase()] ??
+      req.headers[headerName.toUpperCase()];
+    return Array.isArray(h) ? h[0] : h;
   }
   return null;
 }
 
 /**
- * Get host from request
+ * Get host from request object
  */
 function getHost(req) {
-  if (req && typeof req.headers.get === "function") {
+  // For Fetch API or Next.js Request object
+  if (req && typeof req.headers?.get === "function") {
     return req.headers.get("host");
   }
+  // For Node.js/Express.js headers object
   if (req && req.headers) {
-    return req.headers.host || req.headers.Host || req.headers["host"];
+    return req.headers.host ||
+           req.headers.Host ||
+           req.headers["host"];
   }
   return null;
 }
 
 /**
- * Hash a string using SHA256 (for PII hashing)
- * Facebook requires hashed email/phone for better matching
+ * Hash a string using SHA256 (used for PII hashing)
  */
 function hashString(str) {
   if (!str) return null;
-  
   try {
     const hash = createHash('sha256');
     hash.update(str.toLowerCase().trim());
@@ -56,59 +59,54 @@ function hashString(str) {
 
 /**
  * Extract Facebook Browser ID (_fbp) from cookies
- * Works with both Express req.cookies and cookie header string
  */
 function getFbpFromCookies(req) {
   try {
-    // Try Express req.cookies first (if using cookie-parser middleware)
-    if (req && req.cookies && req.cookies._fbp) {
-      return req.cookies._fbp;
-    }
-    
-    // Fallback to parsing cookie header
+    if (req?.cookies?._fbp) return req.cookies._fbp;
     const cookies = getHeader(req, "cookie");
     if (!cookies) return null;
-    
     const match = cookies.match(/_fbp=([^;]+)/);
     return match ? match[1] : null;
-  } catch (err) {
+  } catch {
     return null;
   }
 }
 
 /**
  * Extract Facebook Click ID (_fbc) from cookies
- * Works with both Express req.cookies and cookie header string
  */
 function getFbcFromCookies(req) {
   try {
-    // Try Express req.cookies first (if using cookie-parser middleware)
-    if (req && req.cookies && req.cookies._fbc) {
-      return req.cookies._fbc;
-    }
-    
-    // Fallback to parsing cookie header
+    if (req?.cookies?._fbc) return req.cookies._fbc;
     const cookies = getHeader(req, "cookie");
     if (!cookies) return null;
-    
     const match = cookies.match(/_fbc=([^;]+)/);
     return match ? match[1] : null;
-  } catch (err) {
+  } catch {
     return null;
   }
 }
 
 export async function sendFbEvent(eventData, req) {
-  const PIXEL_ID = req.body.pixel_id;
-  const ACCESS_TOKEN = req.body.token;
-  const TEST_EVENT_CODE = req.body.test_code;
+  const slug = eventData.path.split("/").pop();
+  // console.log("slug", slug);
 
-  delete req.body.pixel_id;
-  delete req.body.token;
-  delete req.body.test_code;
+  let fbCredentials = null;
+  try {
+    const productRes = await fetch(
+      `${process.env.EXTERNAL_API}/products/get-fb-credentials/${slug}`
+    );
+    fbCredentials = await productRes.json();
+  } catch {
+    fbCredentials = null;
+  }
+
+  const PIXEL_ID = fbCredentials?.pixel_id;
+  const ACCESS_TOKEN = fbCredentials?.token;
+  const TEST_EVENT_CODE = fbCredentials?.test_code;
 
   try {
-    // Extract client IP and user agent from request
+    // Prefer forwarded client IP, then real IP, then CF, else fallback
     const clientIp =
       getHeader(req, "x-forwarded-for")?.split(",")[0]?.trim() ||
       getHeader(req, "x-real-ip")?.trim() ||
@@ -116,19 +114,20 @@ export async function sendFbEvent(eventData, req) {
       "0.0.0.0";
     const userAgent = getHeader(req, "user-agent") || "";
 
-    // Get event time (must be within 7 days)
+    // Use eventData.ts if present (ms), else now (seconds)
     const eventTime = eventData.ts
       ? Math.floor(eventData.ts / 1000)
       : Math.floor(Date.now() / 1000);
 
-    // Determine event name (default to PageView)
+    // Facebook CAPI event name, or fall back to PageView
     const eventName = eventData.event || "PageView";
 
-    // Build custom_data based on event type
+    // Set up customData for the event type
     let customData = {
       content_name: eventData.path || "Unknown",
     };
 
+    // ADD TO CART
     if (eventName === "AddToCart" && eventData.product) {
       customData = {
         content_name: eventData.product.name,
@@ -144,79 +143,102 @@ export async function sendFbEvent(eventData, req) {
         value: parseFloat(eventData.product.price),
         currency: eventData.product.currency || "USD",
       };
-    } else if (eventName === "Purchase" && eventData.products) {
-      const totalValue =
-        eventData.value ||
-        eventData.products.reduce(
-          (sum, p) => sum + parseFloat(p.price) * (parseInt(p.quantity) || 1),
-          0
-        );
-      customData = {
-        content_name: "Purchase",
-        content_ids: eventData.products.map((p) => String(p.id)),
-        content_type: "product",
-        contents: eventData.products.map((p) => ({
+    }
+    // PURCHASE - match the shape actually sent from client, fix currency handling
+    else if (eventName === "Purchase" && (eventData.products || eventData.product)) {
+      // Accept both array and single product
+      const currency = eventData.currency ||
+        (eventData.product?.currency || (eventData.products?.[0]?.currency)) ||
+        "BDT"; // Default to BDT since you want that, fallback to USD if not provided
+
+      let contents = [];
+      let content_ids = [];
+      let num_items = 0;
+      let value = 0;
+
+      // If "products" is sent (array)
+      if (Array.isArray(eventData.products) && eventData.products.length > 0) {
+        contents = eventData.products.map((p) => ({
           id: String(p.id),
           quantity: parseInt(p.quantity) || 1,
           item_price: parseFloat(p.price),
-        })),
-        value: parseFloat(totalValue),
-        currency: eventData.currency || "USD",
-        num_items: eventData.products.reduce(
+        }));
+        content_ids = eventData.products.map((p) => String(p.id));
+        num_items = eventData.products.reduce(
           (sum, p) => sum + (parseInt(p.quantity) || 1),
           0
-        ),
+        );
+        value =
+          eventData.value ??
+          eventData.products.reduce(
+            (sum, p) => sum + parseFloat(p.price) * (parseInt(p.quantity) || 1),
+            0
+          );
+      } else if (eventData.product) {
+        // If only a single product key sent
+        const p = eventData.product;
+        contents = [
+          {
+            id: String(p.id),
+            quantity: 1,
+            item_price: parseFloat(p.price),
+          },
+        ];
+        content_ids = [String(p.id)];
+        num_items = 1;
+        value = eventData.value ?? parseFloat(p.price);
+      }
+
+      customData = {
+        content_name: "Purchase",
+        content_ids,
+        content_type: "product",
+        contents,
+        value: parseFloat(value),
+        currency,
+        num_items,
       };
     }
 
-    // Build event source URL
-    // Priority: 1. eventData.url (full URL from frontend), 2. origin/referer header, 3. host + path
+    // Construct eventSourceUrl from most reliable to fallback
     let eventSourceUrl = "";
-    
-    // Option 1: Use full URL if provided in eventData
-    if (eventData.url && (eventData.url.startsWith("http://") || eventData.url.startsWith("https://"))) {
+    if (
+      eventData.url &&
+      (eventData.url.startsWith("http://") || eventData.url.startsWith("https://"))
+    ) {
       eventSourceUrl = eventData.url;
-    }
-    // Option 2: Use origin header (frontend URL)
-    else if (getHeader(req, "origin")) {
+    } else if (getHeader(req, "origin")) {
       const origin = getHeader(req, "origin");
-      if (eventData.path) {
-        eventSourceUrl = `${origin}${eventData.path.startsWith("/") ? eventData.path : "/" + eventData.path}`;
-      } else {
-        eventSourceUrl = origin;
-      }
-    }
-    // Option 3: Use referer header (frontend URL)
-    else if (getHeader(req, "referer") || getHeader(req, "referrer")) {
+      eventSourceUrl = eventData.path
+        ? `${origin}${eventData.path.startsWith("/") ? eventData.path : "/" + eventData.path}`
+        : origin;
+    } else if (getHeader(req, "referer") || getHeader(req, "referrer")) {
       const referer = getHeader(req, "referer") || getHeader(req, "referrer");
       if (eventData.path) {
-        // Extract base URL from referer and append path
         try {
           const refererUrl = new URL(referer);
-          eventSourceUrl = `${refererUrl.origin}${eventData.path.startsWith("/") ? eventData.path : "/" + eventData.path}`;
-        } catch (e) {
+          eventSourceUrl = `${refererUrl.origin}${
+            eventData.path.startsWith("/") ? eventData.path : "/" + eventData.path
+          }`;
+        } catch {
           eventSourceUrl = referer;
         }
       } else {
         eventSourceUrl = referer;
       }
-    }
-    // Option 4: Use environment variable for frontend URL
-    else if (process.env.FRONTEND_URL) {
-      const frontendUrl = process.env.FRONTEND_URL.replace(/\/$/, ""); // Remove trailing slash
-      if (eventData.path) {
-        eventSourceUrl = `${frontendUrl}${eventData.path.startsWith("/") ? eventData.path : "/" + eventData.path}`;
-      } else {
-        eventSourceUrl = frontendUrl;
-      }
-    }
-    // Option 5: Fallback to host + path (API server host - not ideal)
-    else {
+    } else if (process.env.FRONTEND_URL) {
+      const frontendUrl = process.env.FRONTEND_URL.replace(/\/$/, "");
+      eventSourceUrl = eventData.path
+        ? `${frontendUrl}${eventData.path.startsWith("/") ? eventData.path : "/" + eventData.path}`
+        : frontendUrl;
+    } else {
       const host = getHost(req);
       const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
-      
       if (eventData.path) {
-        if (eventData.path.startsWith("http://") || eventData.path.startsWith("https://")) {
+        if (
+          eventData.path.startsWith("http://") ||
+          eventData.path.startsWith("https://")
+        ) {
           eventSourceUrl = eventData.path;
         } else if (host) {
           eventSourceUrl = `${protocol}://${host}${eventData.path.startsWith("/") ? eventData.path : "/" + eventData.path}`;
@@ -228,52 +250,35 @@ export async function sendFbEvent(eventData, req) {
       }
     }
 
-    // Build user_data with enhanced matching
+    // Prepare user_data for CAPI
     const userData = {
       client_ip_address: clientIp,
       client_user_agent: userAgent,
     };
 
-    // Add Facebook Browser ID (_fbp) if available (improves matching)
+    // Attach _fbp/_fbc if available
     const fbp = getFbpFromCookies(req);
-    if (fbp) {
-      userData.fbp = fbp;
-    }
-
-    // Add Facebook Click ID (_fbc) if available
+    if (fbp) userData.fbp = fbp;
     const fbc = getFbcFromCookies(req);
-    if (fbc) {
-      userData.fbc = fbc;
-    }
+    if (fbc) userData.fbc = fbc;
 
-    // Debug: Log cookie info
+    // Optionally warn about missing cookies (via debug log)
     const cookieHeader = getHeader(req, "cookie");
-    if (cookieHeader) {
-      const hasFbp = cookieHeader.includes("_fbp");
-      const hasFbc = cookieHeader.includes("_fbc");
-      if (!hasFbp && !hasFbc) {
-        // console.log("[fb-pixel] No _fbp or _fbc cookies found. Cookie header:", cookieHeader.substring(0, 200));
-      }
-    } else {
+    if (!cookieHeader) {
       console.log("[fb-pixel] No cookie header found in request");
     }
 
-    // Add hashed email/phone if provided in eventData
+    // Optionally provide PII for matching, hashed
     if (eventData.email) {
       const hashedEmail = hashString(eventData.email);
-      if (hashedEmail) {
-        userData.em = hashedEmail;
-      }
+      if (hashedEmail) userData.em = hashedEmail;
     }
-
     if (eventData.phone) {
       const hashedPhone = hashString(eventData.phone);
-      if (hashedPhone) {
-        userData.ph = hashedPhone;
-      }
+      if (hashedPhone) userData.ph = hashedPhone;
     }
 
-    // Build Facebook Conversions API payload
+    // Compose event payload as required by Facebook CAPI
     const eventPayload = {
       event_name: eventName,
       event_time: eventTime,
@@ -283,44 +288,27 @@ export async function sendFbEvent(eventData, req) {
       custom_data: customData,
     };
 
-// console.log("[fb-pixel] Event Payload:", JSON.stringify(eventPayload, null, 2));
-  
-
-    // Add event_id for deduplication if provided
+    // Optionally attach event_id for deduplication
     if (eventData.event_id) {
       eventPayload.event_id = eventData.event_id;
-    }
-
-    if (!ACCESS_TOKEN) {
-      console.error("[fb-pixel] Missing access token");
-      return null;
     }
 
     const payload = {
       data: [eventPayload],
       access_token: ACCESS_TOKEN,
     };
-    // console.log("[fb-pixel] Payload:", JSON.stringify(eventPayload, null, 2));
 
-    // Build API URL with optional test event code
     let apiUrl = `https://graph.facebook.com/v21.0/${PIXEL_ID}/events`;
     if (TEST_EVENT_CODE) {
       apiUrl += `?test_event_code=${TEST_EVENT_CODE}`;
     }
 
-    // console.log("[fb-pixel] Sending event:", {
-    //   event_name: eventName,
-    //   event_time: eventTime,
-    //   event_source_url: eventSourceUrl,
-    //   has_fbp: !!fbp,
-    //   has_fbc: !!fbc,
-    //   has_test_code: !!TEST_EVENT_CODE,
-    //   custom_data: customData,
-    //   user_data_keys: Object.keys(userData),
-    // });
+    // Ensure we never send invalid/missing tokens
+    if (!ACCESS_TOKEN) {
+      console.error("[fb-pixel] Missing access token");
+      return;
+    }
 
-    // Send to Facebook Conversions API
-    // console.log("[fb-pixel] Sending event to Facebook:", payload);
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
@@ -328,6 +316,10 @@ export async function sendFbEvent(eventData, req) {
       },
       body: JSON.stringify(payload),
     });
+
+    if (payload?.data?.[0]?.event_name === "Purchase") {
+      console.log(payload.data);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -340,16 +332,9 @@ export async function sendFbEvent(eventData, req) {
     }
 
     const result = await response.json();
-    
-    // Log detailed response for debugging
-    // console.log("[fb-pixel] Facebook API Response:", {
-    //   events_received: result.events_received,
-    //   messages: result.messages || [],
-    //   fbtrace_id: result.fbtrace_id,
-    //   has_warnings: result.messages && result.messages.length > 0,
-    // });
-    
-    if (result.messages && result.messages.length > 0) {
+
+    // Print Facebook warnings and result to the console if present
+    if (result.messages?.length > 0) {
       console.warn("[fb-pixel] Facebook warnings:", result.messages);
       result.messages.forEach((msg) => {
         if (msg.message) {
@@ -357,15 +342,14 @@ export async function sendFbEvent(eventData, req) {
         }
       });
     }
-    
+
     if (result.events_received === 0) {
       console.warn("[fb-pixel] ⚠️ Facebook received 0 events. Check payload structure.");
       console.log("[fb-pixel] Full payload sent:", JSON.stringify(payload, null, 2));
     } else {
-      console.log(`[fb-pixel] ✅ Successfully sent ${result.events_received} event(s) to Facebook`);
+      // console.log(`[fb-pixel] ✅ Successfully sent ${result.events_received} event(s) to Facebook`);
     }
-    // console.log("[fb-pixel] Result:", JSON.stringify(result, null, 2));
-    
+
     return result;
   } catch (err) {
     console.error("[fb-pixel] Failed to send event:", err);
