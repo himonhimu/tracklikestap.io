@@ -1,0 +1,339 @@
+/**
+ * Facebook Conversions API - Server-side tracking (Custom Param Handling)
+ * See: https://developers.facebook.com/docs/marketing-api/conversions-api/using-the-api/parameter-builder
+ */
+
+import { createHash } from "crypto";
+
+/**
+ * Extract header value from various request shapes (Next.js/Fetch/Express/etc)
+ */
+function getHeader(req, headerName) {
+  if (req?.headers?.get && typeof req.headers.get === "function") {
+    return req.headers.get(headerName);
+  }
+  if (req?.headers) {
+    const h =
+      req.headers[headerName] ??
+      req.headers[headerName.toLowerCase()] ??
+      req.headers[headerName.toUpperCase()];
+    return Array.isArray(h) ? h[0] : h;
+  }
+  return null;
+}
+
+/**
+ * Extract host from request headers
+ */
+function getHost(req) {
+  if (req?.headers?.get && typeof req.headers.get === "function") {
+    return req.headers.get("host");
+  }
+  if (req?.headers) {
+    return req.headers.host || req.headers.Host || req.headers["host"];
+  }
+  return null;
+}
+
+/**
+ * Hash a string to SHA256 hex, lowercased and trimmed
+ */
+function hashString(str) {
+  if (!str) return null;
+  try {
+    const hash = createHash("sha256");
+    hash.update(str.toLowerCase().trim());
+    return hash.digest("hex");
+  } catch (err) {
+    console.warn("[fb-pixel] Failed to hash string:", err);
+    return null;
+  }
+}
+
+/**
+ * Parse _fbp from cookies if present in request or cookie header
+ */
+function getFbpFromCookies(req) {
+  try {
+    if (req?.cookies?._fbp) return req.cookies._fbp;
+    const cookieHeader = getHeader(req, "cookie");
+    if (!cookieHeader) return null;
+    const match = cookieHeader.match(/_fbp=([^;]+)/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse _fbc from cookies if present in request or cookie header
+ */
+function getFbcFromCookies(req) {
+  try {
+    if (req?.cookies?._fbc) return req.cookies._fbc;
+    const cookieHeader = getHeader(req, "cookie");
+    if (!cookieHeader) return null;
+    const match = cookieHeader.match(/_fbc=([^;]+)/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function sendFbEvent(eventData, req) {
+  // Get context and config from request headers
+  const slug = eventData.path ? eventData.path.split("/").pop() : "";
+
+  const PIXEL_ID = req?.headers?.f_pixel_id;
+  const ACCESS_TOKEN = req?.headers?.f_access_token;
+  const TEST_EVENT_CODE = req?.headers?.f_test_event_code;
+
+  try {
+    const clientIp =
+      getHeader(req, "x-forwarded-for")?.split(",")[0]?.trim() ||
+      getHeader(req, "x-real-ip")?.trim() ||
+      getHeader(req, "cf-connecting-ip")?.trim() ||
+      "0.0.0.0";
+    const userAgent = getHeader(req, "user-agent") || "";
+
+    // Facebook click/browser ids: prefer cookies, then eventData fallback
+    const fbp = getFbpFromCookies(req) || eventData._fbp || null;
+    const fbc = getFbcFromCookies(req) || eventData._fbc || null;
+
+    // Construct user_data for CAPI, with PII hashed if present
+    const userData = {
+      client_ip_address: clientIp,
+      client_user_agent: userAgent,
+      ...(fbp ? { fbp } : {}),
+      ...(fbc ? { fbc } : {}),
+    };
+    if (eventData.email) {
+      const hashed = hashString(eventData.email);
+      if (hashed) userData.em = hashed;
+    }
+    if (eventData.phone) {
+      const hashed = hashString(eventData.phone);
+      if (hashed) userData.ph = hashed;
+    }
+
+    // Product/event fields as per conventions
+    const path = eventData.path || "";
+    const content_name =
+      eventData.product?.name ||
+      eventData.content_name ||
+      slug ||
+      path ||
+      "Unknown";
+
+    let contents = [];
+    let content_ids = [];
+    let num_items = 0;
+    let quantity = 1;
+    let value = 0;
+    let currency =
+      eventData.currency ||
+      eventData.product?.currency ||
+      (Array.isArray(eventData.products) && eventData.products[0]?.currency) ||
+      "BDT";
+    let external_id = eventData.external_id || 0;
+
+    if (Array.isArray(eventData.products) && eventData.products.length > 0) {
+      contents = eventData.products.map((p) => ({
+        id: `${p.id}`,
+        quantity: parseInt(p.quantity) || 1,
+        item_price: parseFloat(p.price),
+      }));
+      content_ids = eventData.products.map((p) => `${p.id}`);
+      num_items = eventData.products.reduce(
+        (sum, p) => sum + (parseInt(p.quantity) || 1),
+        0
+      );
+      quantity = num_items;
+      value =
+        "value" in eventData && eventData.value != null
+          ? eventData.value
+          : eventData.products.reduce(
+              (sum, p) =>
+                sum + parseFloat(p.price) * (parseInt(p.quantity) || 1),
+              0
+            );
+    } else if (eventData.product) {
+      const p = eventData.product;
+      contents = [
+        {
+          id: `${p.id}`,
+          quantity: parseInt(p.quantity) || 1,
+          item_price: parseFloat(p.price),
+        },
+      ];
+      content_ids = [`${p.id}`];
+      num_items = parseInt(p.quantity) || 1;
+      quantity = num_items;
+      value =
+        "value" in eventData && eventData.value != null
+          ? eventData.value
+          : parseFloat(p.price) * quantity;
+    } else {
+      contents = [];
+      content_ids = [];
+      num_items = eventData.num_items || 1;
+      quantity = eventData.quantity || 1;
+      value = eventData.value || 0;
+    }
+
+    // Timestamp (seconds)
+    const eventTime = eventData.ts
+      ? Math.floor(eventData.ts / 1000)
+      : Math.floor(Date.now() / 1000);
+
+    // Event object for reference/debug (do NOT include "referrer" as a top-level field in final payload!)
+    const fbEventObj = {
+      host: getHost(req),
+      path,
+      full_url: eventData.url,
+      referrer:
+        eventData.referrer ||
+        getHeader(req, "referer") ||
+        getHeader(req, "referrer") ||
+        null,
+      ua: eventData.ua || userAgent,
+      ts: eventData.ts || Date.now(),
+      event: eventData.event || "PageView",
+      content_ids,
+      content_name,
+      content_type:
+        eventData.content_type ||
+        (Array.isArray(contents) && contents.length > 1
+          ? "product_group"
+          : "product"),
+      contents,
+      num_items: num_items || quantity,
+      quantity,
+      external_id,
+      value: value || 0,
+      currency,
+      event_id: eventData.event_id || null,
+      _fbc: fbc,
+      _fbp: fbp,
+      ipAddress: clientIp,
+      deviceType: eventData.deviceType || null,
+    };
+
+    // Facebook requirement: external_id must only be in user_data
+    if (
+      fbEventObj.external_id !== undefined &&
+      fbEventObj.external_id !== null
+    ) {
+      userData.external_id = fbEventObj.external_id;
+    }
+
+    // Build CAPI event payload
+    const eventPayload = {
+      event_name: fbEventObj.event,
+      event_time: eventTime,
+      event_source_url:
+        eventData.url ||
+        (process.env.FRONTEND_URL
+          ? process.env.FRONTEND_URL.replace(/\/$/, "") + path
+          : ""),
+      action_source: "website",
+      user_data: userData,
+      custom_data: {
+        content_ids: fbEventObj.content_ids,
+        content_name: fbEventObj.content_name,
+        content_type: fbEventObj.content_type,
+        contents: fbEventObj.contents,
+        num_items: fbEventObj.num_items,
+        quantity: fbEventObj.quantity,
+        value: fbEventObj.value,
+        currency: fbEventObj.currency,
+        // external_id must NOT appear here
+      },
+      content_name: fbEventObj.content_name,
+      content_type: fbEventObj.content_type,
+      content_ids: fbEventObj.content_ids,
+      num_items: fbEventObj.num_items,
+      quantity: fbEventObj.quantity,
+      value: fbEventObj.value,
+      currency: fbEventObj.currency,
+      // ua: fbEventObj.ua, // DO NOT INCLUDE 'ua' at top-level to avoid Facebook API error
+      url: fbEventObj.full_url,
+      _fbc: fbc,
+      _fbp: fbp,
+      ts: fbEventObj.ts,
+    };
+    if (fbEventObj.event_id) {
+      eventPayload.event_id = fbEventObj.event_id;
+    }
+
+    // If referrer is present, include only in custom_data for debug (but not as a top-level payload field)
+    if (fbEventObj.referrer) {
+      eventPayload.custom_data.referrer = fbEventObj.referrer;
+    }
+
+    // DEBUG: Log outgoing payload (excluding referrer from top level)
+
+    // Compose payload for Facebook API
+    const payload = {
+      data: [eventPayload],
+      access_token: ACCESS_TOKEN,
+    };
+
+    // Final API URL (with test_event_code, if any)
+    let apiUrl = `https://graph.facebook.com/v21.0/${PIXEL_ID}/events`;
+    if (TEST_EVENT_CODE) {
+      apiUrl += `?test_event_code=${TEST_EVENT_CODE}`;
+    }
+    // Skip if access token missing
+    if (!ACCESS_TOKEN) {
+      console.error("[fb-pixel] Missing access token");
+      return;
+    }
+
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      // Always log response body if not ok
+      const errorText = await response.text();
+      console.error(
+        "[fb-pixel] Facebook API error:",
+        response.status,
+        errorText
+      );
+      return null;
+    }
+
+    const result = await response.json();
+
+    // Log warnings from Facebook API/messages field, if any
+    if (result?.messages?.length > 0) {
+      console.warn("[fb-pixel] Facebook warnings:", result.messages);
+      result.messages.forEach((msg) => {
+        if (msg.message) {
+          console.warn(`[fb-pixel] Warning: ${msg.message}`);
+        }
+      });
+    }
+
+    // If no events received, show full payload for debugging
+    if (result?.events_received === 0) {
+      console.warn(
+        "[fb-pixel] ⚠️ Facebook received 0 events. Check payload structure."
+      );
+      console.log(
+        "[fb-pixel] Full payload sent:",
+        JSON.stringify(payload, null, 2)
+      );
+    }
+
+    return result;
+  } catch (err) {
+    console.error("[fb-pixel] Failed to send event:", err);
+    return null;
+  }
+}

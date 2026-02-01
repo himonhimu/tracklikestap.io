@@ -52,22 +52,28 @@ export async function processEvent(eventData, req) {
       path = req.url;
     }
   }
-
   const event = {
     host,
-    path,
+    path: path,
     full_url: eventData.url,
     referrer: eventData.referrer || null,
     ua: userAgent,
-    email: eventData.email || null,
-    phone: eventData.phone || null,
     ts: eventData.ts || Date.now(),
-    event: eventData.event || "PageView", // Event type: PageView, AddToCart, Purchase
-    product: eventData.product || null,
-    products: eventData.products || null,
-    value: eventData.value || null,
-    currency: eventData.currency || null,
-    event_id: eventData.event_id || null, // Event ID for deduplication
+    event: eventData.event || "PageView",
+    phone: eventData.phone || null,
+    email: eventData.email || null,
+    content_ids: eventData.content_ids || [],
+    content_name: eventData.content_name || "Unknown",
+    content_type: eventData.content_type || "product",
+    contents: eventData.contents || [],
+    num_items: eventData.num_items || 1,
+    quantity: eventData.quantity || 1,
+    external_id: eventData.external_id || 0,
+    value: eventData.value || 0,
+    currency: eventData.currency || "BDT",
+    event_id: eventData.event_id || null,
+    _fbc: eventData._fbc || null,
+    _fbp: eventData._fbp || null,
     ipAddress,
     deviceType,
   };
@@ -86,8 +92,10 @@ export async function processEvent(eventData, req) {
     if (db) {
       // Prepare product data as JSON
       let productData = null;
-      if (event.product) {
-        productData = JSON.stringify(event.product);
+      if (event.contents) {
+        productData = JSON.stringify(event.contents);
+      } else if (event.product) {
+        productData = JSON.stringify(event.products);
       } else if (event.products) {
         productData = JSON.stringify(event.products);
       }
@@ -108,7 +116,7 @@ export async function processEvent(eventData, req) {
           productData,
           event.value || null,
           event.currency || null,
-        ],
+        ]
       );
 
       // Check if IP exists in unique_users
@@ -116,7 +124,7 @@ export async function processEvent(eventData, req) {
       try {
         const [rows] = await db.execute(
           "SELECT 1 FROM unique_users WHERE ip_address = ? LIMIT 1",
-          [ipAddress],
+          [ipAddress]
         );
         if (rows && rows.length > 0) {
           exists = true;
@@ -157,7 +165,7 @@ export async function processEvent(eventData, req) {
               geolocation.district,
               geolocation.latitude,
               geolocation.longitude,
-            ],
+            ]
           );
         } else {
           // Insert without geolocation
@@ -168,7 +176,7 @@ export async function processEvent(eventData, req) {
             ON DUPLICATE KEY UPDATE
               last_seen = CURRENT_TIMESTAMP,
               visit_count = visit_count + 1`,
-            [ipAddress, deviceType, userAgent, event.full_url],
+            [ipAddress, deviceType, userAgent, event.full_url]
           );
         }
       } else {
@@ -177,7 +185,7 @@ export async function processEvent(eventData, req) {
             last_seen = CURRENT_TIMESTAMP,
             visit_count = visit_count + 1
           WHERE ip_address = ?`,
-          [ipAddress],
+          [ipAddress]
         );
       }
     }

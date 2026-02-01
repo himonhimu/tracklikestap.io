@@ -56,6 +56,31 @@ function hashString(str) {
 }
 
 /**
+ * Generate a random email address for fallback.
+ */
+function getRandomEmail() {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let user = "";
+  for (let i = 0; i < 10; i++) {
+    user += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return `${user}@example.com`;
+}
+
+/**
+ * Generate a random phone number for fallback.
+ */
+function getRandomPhone() {
+  // Example random Bangladeshi number: +8801XXXXXXXXX
+  const prefix = "+8801";
+  let num = "";
+  for (let i = 0; i < 9; i++) {
+    num += Math.floor(Math.random() * 10);
+  }
+  return `${prefix}${num}`;
+}
+
+/**
  * Extract Facebook Browser ID (_fbp) from cookies
  */
 function getFbpFromCookies(req) {
@@ -86,27 +111,9 @@ function getFbcFromCookies(req) {
 }
 
 export async function sendFbEvent(eventData, req) {
-  const slug = eventData.path.split("/").pop();
-
-  // const
-  // // console.log("slug", slug);
-
-  // let fbCredentials = null;
-  // try {
-  //   const productRes = await fetch(
-  //     `${process.env.EXTERNAL_API}/products/get-fb-credentials/${slug}`
-  //   );
-  //   fbCredentials = await productRes.json();
-  // } catch {
-  //   fbCredentials = null;
-  // }
-
-  // const PIXEL_ID = fbCredentials?.pixel_id;
-  // const ACCESS_TOKEN = fbCredentials?.token;
-  // const TEST_EVENT_CODE = fbCredentials?.test_code;
-  const PIXEL_ID = req.headers.f_pixel_id;
-  const ACCESS_TOKEN = req.headers.f_access_token;
-  const TEST_EVENT_CODE = req.headers.f_test_event_code;
+  const PIXEL_ID = req?.headers?.f_pixel_id;
+  const ACCESS_TOKEN = req?.headers?.f_access_token;
+  const TEST_EVENT_CODE = req?.headers?.f_test_event_code;
 
   try {
     // Prefer forwarded client IP, then real IP, then CF, else fallback
@@ -127,87 +134,14 @@ export async function sendFbEvent(eventData, req) {
 
     // Set up customData for the event type
     let customData = {
-      content_name: eventData.path || "Unknown",
+      content_name: eventData.content_name | eventData.path || "Unknown",
+      content_type: eventData.content_type || "product",
+      content_ids: eventData.content_ids || [],
+      num_items: eventData.num_items || 1,
+      quantity: eventData.quantity || 1,
+      value: eventData.value || 0,
+      currency: eventData.currency || "BDT",
     };
-
-    // ADD TO CART
-    if (eventName === "AddToCart" && eventData.product) {
-      customData = {
-        content_name: eventData.product.name,
-        content_ids: [String(eventData.product.id)],
-        content_type: "product",
-        contents: [
-          {
-            id: String(eventData.product.id),
-            quantity: 1,
-            item_price: parseFloat(eventData.product.price),
-          },
-        ],
-        value: parseFloat(eventData.product.price),
-        currency: eventData.product.currency || "USD",
-      };
-      // console.log(customData);
-    }
-    // PURCHASE - match the shape actually sent from client, fix currency handling
-    else if (
-      eventName === "Purchase" &&
-      (eventData.products || eventData.product)
-    ) {
-      // Accept both array and single product
-      const currency =
-        eventData.currency ||
-        eventData.product?.currency ||
-        eventData.products?.[0]?.currency ||
-        "BDT"; // Default to BDT since you want that, fallback to USD if not provided
-
-      let contents = [];
-      let content_ids = [];
-      let num_items = 0;
-      let value = 0;
-
-      // If "products" is sent (array)
-      if (Array.isArray(eventData.products) && eventData.products.length > 0) {
-        contents = eventData.products.map((p) => ({
-          id: String(p.id),
-          quantity: parseInt(p.quantity) || 1,
-          item_price: parseFloat(p.price),
-        }));
-        content_ids = eventData.products.map((p) => String(p.id));
-        num_items = eventData.products.reduce(
-          (sum, p) => sum + (parseInt(p.quantity) || 1),
-          0,
-        );
-        value =
-          eventData.value ??
-          eventData.products.reduce(
-            (sum, p) => sum + parseFloat(p.price) * (parseInt(p.quantity) || 1),
-            0,
-          );
-      } else if (eventData.product) {
-        // If only a single product key sent
-        const p = eventData.product;
-        contents = [
-          {
-            id: String(p.id),
-            quantity: 1,
-            item_price: parseFloat(p.price),
-          },
-        ];
-        content_ids = [String(p.id)];
-        num_items = 1;
-        value = eventData.value ?? parseFloat(p.price);
-      }
-
-      customData = {
-        content_name: "Purchase",
-        content_ids,
-        content_type: "product",
-        contents,
-        value: parseFloat(value),
-        currency,
-        num_items,
-      };
-    }
 
     // Construct eventSourceUrl from most reliable to fallback
     let eventSourceUrl = "";
@@ -220,7 +154,11 @@ export async function sendFbEvent(eventData, req) {
     } else if (getHeader(req, "origin")) {
       const origin = getHeader(req, "origin");
       eventSourceUrl = eventData.path
-        ? `${origin}${eventData.path.startsWith("/") ? eventData.path : "/" + eventData.path}`
+        ? `${origin}${
+            eventData.path.startsWith("/")
+              ? eventData.path
+              : "/" + eventData.path
+          }`
         : origin;
     } else if (getHeader(req, "referer") || getHeader(req, "referrer")) {
       const referer = getHeader(req, "referer") || getHeader(req, "referrer");
@@ -241,7 +179,11 @@ export async function sendFbEvent(eventData, req) {
     } else if (process.env.FRONTEND_URL) {
       const frontendUrl = process.env.FRONTEND_URL.replace(/\/$/, "");
       eventSourceUrl = eventData.path
-        ? `${frontendUrl}${eventData.path.startsWith("/") ? eventData.path : "/" + eventData.path}`
+        ? `${frontendUrl}${
+            eventData.path.startsWith("/")
+              ? eventData.path
+              : "/" + eventData.path
+          }`
         : frontendUrl;
     } else {
       const host = getHost(req);
@@ -253,7 +195,11 @@ export async function sendFbEvent(eventData, req) {
         ) {
           eventSourceUrl = eventData.path;
         } else if (host) {
-          eventSourceUrl = `${protocol}://${host}${eventData.path.startsWith("/") ? eventData.path : "/" + eventData.path}`;
+          eventSourceUrl = `${protocol}://${host}${
+            eventData.path.startsWith("/")
+              ? eventData.path
+              : "/" + eventData.path
+          }`;
         } else {
           eventSourceUrl = eventData.path;
         }
@@ -266,6 +212,7 @@ export async function sendFbEvent(eventData, req) {
     const userData = {
       client_ip_address: clientIp,
       client_user_agent: userAgent,
+      external_id: eventData.external_id,
     };
 
     // Attach _fbp/_fbc if available
@@ -282,12 +229,26 @@ export async function sendFbEvent(eventData, req) {
 
     // Optionally provide PII for matching, hashed
     //  console.log("[em, ph]", eventData.email, eventData.phone);
-    if (eventData.email) {
-      const hashedEmail = hashString(eventData.email);
+
+    // Generate random replacements if missing
+    let emailToUse = eventData.email;
+    let phoneToUse = eventData.phone;
+
+    if (!emailToUse) {
+      emailToUse = getRandomEmail();
+      emailToUse = hashString(emailToUse);
+    }
+    if (!phoneToUse) {
+      phoneToUse = getRandomPhone();
+      phoneToUse = hashString(phoneToUse);
+    }
+
+    if (emailToUse) {
+      const hashedEmail = emailToUse;
       if (hashedEmail) userData.em = hashedEmail;
     }
-    if (eventData.phone) {
-      const hashedPhone = hashString(eventData.phone);
+    if (phoneToUse) {
+      const hashedPhone = phoneToUse;
       if (hashedPhone) userData.ph = hashedPhone;
     }
 
@@ -300,6 +261,7 @@ export async function sendFbEvent(eventData, req) {
       user_data: userData,
       custom_data: customData,
     };
+    // console.log(userData);
 
     // Optionally attach event_id for deduplication
     if (eventData.event_id) {
@@ -321,7 +283,6 @@ export async function sendFbEvent(eventData, req) {
       console.error("[fb-pixel] Missing access token");
       return;
     }
-
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
@@ -339,12 +300,14 @@ export async function sendFbEvent(eventData, req) {
       console.error(
         "[fb-pixel] Facebook API error:",
         response.status,
-        errorText,
+        errorText
       );
       return null;
     }
 
     const result = await response.json();
+
+    // console.log(result);
 
     // Print Facebook warnings and result to the console if present
     if (result.messages?.length > 0) {
@@ -358,11 +321,11 @@ export async function sendFbEvent(eventData, req) {
 
     if (result.events_received === 0) {
       console.warn(
-        "[fb-pixel] ⚠️ Facebook received 0 events. Check payload structure.",
+        "[fb-pixel] ⚠️ Facebook received 0 events. Check payload structure."
       );
       console.log(
         "[fb-pixel] Full payload sent:",
-        JSON.stringify(payload, null, 2),
+        JSON.stringify(payload, null, 2)
       );
     } else {
       // console.log(`[fb-pixel] ✅ Successfully sent ${result.events_received} event(s) to Facebook`);
