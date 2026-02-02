@@ -7,6 +7,39 @@
  */
 
 import { createHash } from "crypto";
+import { getDb } from "./db.js";
+// Simple in-memory cache for getUserCredentialsByPixelId results
+const userCredentialsCache = new Map();
+
+/**
+ * Memoized version of getUserCredentialsByPixelId.
+ * Caches data in memory until the process restarts.
+ */
+async function getUserCredentialsByPixelIdMemoized(pixelId) {
+  if (!pixelId) return null;
+  if (userCredentialsCache.has(pixelId)) {
+    return userCredentialsCache.get(pixelId);
+  }
+  const data = await getUserCredentialsByPixelId(pixelId);
+  if (data) {
+    userCredentialsCache.set(pixelId, data);
+  }
+  return data;
+}
+
+async function getUserCredentialsByPixelId(pixelId) {
+  try {
+    const db = getDb();
+    const [rows] = await db.query(
+      "SELECT id_cr, pixel_id, access_token, test_code, site_url FROM user_credentials WHERE pixel_id = ?",
+      [pixelId]
+    );
+    return rows[0];
+  } catch (err) {
+    console.error("[fb-pixel] Failed to get user credentials:", err);
+    return [];
+  }
+}
 
 /**
  * Extract headers from request (works with Next.js Request or standard request objects)
@@ -111,9 +144,14 @@ function getFbcFromCookies(req) {
 }
 
 export async function sendFbEvent(eventData, req) {
-  const PIXEL_ID = req?.headers?.f_pixel_id;
-  const ACCESS_TOKEN = req?.headers?.f_access_token;
-  const TEST_EVENT_CODE = req?.headers?.f_test_event_code;
+  const passedPixelId =
+    req?.headers?.f_pixel_id || req.query.f_pixel_id || req.params.f_pixel_id;
+  const userCredentials = await getUserCredentialsByPixelIdMemoized(
+    passedPixelId
+  );
+  const PIXEL_ID = userCredentials?.pixel_id;
+  const ACCESS_TOKEN = userCredentials?.access_token;
+  const TEST_EVENT_CODE = userCredentials?.test_code;
 
   try {
     // Prefer forwarded client IP, then real IP, then CF, else fallback

@@ -22,7 +22,7 @@ async function main() {
 
     if (!USER || !DATABASE) {
       console.error(
-        "[init-db] Error: MYSQL_USER and MYSQL_DATABASE must be set in .env.local",
+        "[init-db] Error: MYSQL_USER and MYSQL_DATABASE must be set in .env.local"
       );
       process.exit(1);
     }
@@ -37,7 +37,7 @@ async function main() {
     });
 
     await serverConnection.query(
-      `CREATE DATABASE IF NOT EXISTS \`${DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`,
+      `CREATE DATABASE IF NOT EXISTS \`${DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
     );
     console.log(`[init-db] Database "${DATABASE}" is ready.`);
 
@@ -103,8 +103,20 @@ async function main() {
         INDEX idx_last_seen (last_seen)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
-
     console.log('[init-db] Table "unique_users" is ready.');
+
+    await db.query(`
+     CREATE TABLE IF NOT EXISTS user_credentials (
+      id_cr int NOT NULL AUTO_INCREMENT,
+      pixel_id text COLLATE utf8mb4_unicode_ci,
+      access_token text COLLATE utf8mb4_unicode_ci,
+      test_code varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      site_url varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      PRIMARY KEY (id_cr)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    console.log('[init-db] Table "user_credentials" is ready.');
 
     await db.end();
     console.log("[init-db] Done.");
