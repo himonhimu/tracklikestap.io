@@ -32,7 +32,7 @@ async function getUserCredentialsByPixelId(pixelId) {
     const db = getDb();
     const [rows] = await db.query(
       "SELECT id_cr, pixel_id, access_token, test_code, site_url FROM user_credentials WHERE pixel_id = ?",
-      [pixelId]
+      [pixelId],
     );
     return rows[0];
   } catch (err) {
@@ -146,9 +146,9 @@ function getFbcFromCookies(req) {
 export async function sendFbEvent(eventData, req) {
   const passedPixelId =
     req?.headers?.f_pixel_id || req.query.f_pixel_id || req.params.f_pixel_id;
-  const userCredentials = await getUserCredentialsByPixelIdMemoized(
-    passedPixelId
-  );
+  const userCredentials =
+    await getUserCredentialsByPixelIdMemoized(passedPixelId);
+  // console.log("[fb-pixel] User credentials:", passedPixelId);
   const PIXEL_ID = userCredentials?.pixel_id;
   const ACCESS_TOKEN = userCredentials?.access_token;
   const TEST_EVENT_CODE = userCredentials?.test_code;
@@ -171,8 +171,10 @@ export async function sendFbEvent(eventData, req) {
     const eventName = eventData.event || "PageView";
 
     // Set up customData for the event type
+    // console.log("[fb-pixel] Event data:", eventData);
+    // console.log("[fb-pixel] Event data content_name:", eventData.content_name);
     let customData = {
-      content_name: eventData.content_name | eventData.path || "Unknown",
+      content_name: eventData.content_name || eventData.path || "Unknown",
       content_type: eventData.content_type || "product",
       content_ids: eventData.content_ids || [],
       num_items: eventData.num_items || 1,
@@ -299,7 +301,6 @@ export async function sendFbEvent(eventData, req) {
       user_data: userData,
       custom_data: customData,
     };
-    // console.log(userData);
 
     // Optionally attach event_id for deduplication
     if (eventData.event_id) {
@@ -310,7 +311,6 @@ export async function sendFbEvent(eventData, req) {
       data: [eventPayload],
       access_token: ACCESS_TOKEN,
     };
-
     let apiUrl = `https://graph.facebook.com/v21.0/${PIXEL_ID}/events`;
     if (TEST_EVENT_CODE) {
       apiUrl += `?test_event_code=${TEST_EVENT_CODE}`;
@@ -338,7 +338,7 @@ export async function sendFbEvent(eventData, req) {
       console.error(
         "[fb-pixel] Facebook API error:",
         response.status,
-        errorText
+        errorText,
       );
       return null;
     }
@@ -359,11 +359,11 @@ export async function sendFbEvent(eventData, req) {
 
     if (result.events_received === 0) {
       console.warn(
-        "[fb-pixel] ⚠️ Facebook received 0 events. Check payload structure."
+        "[fb-pixel] ⚠️ Facebook received 0 events. Check payload structure.",
       );
       console.log(
         "[fb-pixel] Full payload sent:",
-        JSON.stringify(payload, null, 2)
+        JSON.stringify(payload, null, 2),
       );
     } else {
       // console.log(`[fb-pixel] ✅ Successfully sent ${result.events_received} event(s) to Facebook`);
