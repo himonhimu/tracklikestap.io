@@ -5,6 +5,8 @@ import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
 import eventRoutes from "./functions/routes/event.js";
 import analyticsRoutes from "./functions/routes/analytics.js";
+import authRoutes from "./functions/routes/auth.js";
+import { requireAuth, resolveEffectiveUrlFilter } from "./functions/middleware/auth.js";
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -66,7 +68,8 @@ app.get("/api/get-pixel", (req, res) => {
 
 // API Routes
 app.use("/api/event", eventRoutes);
-app.use("/api/analytics", analyticsRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/analytics", requireAuth, resolveEffectiveUrlFilter, analyticsRoutes);
 
 // 404 handler
 app.use((req, res) => {
