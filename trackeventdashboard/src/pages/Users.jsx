@@ -8,6 +8,7 @@ import {
   FiGlobe,
   FiSmartphone,
   FiTablet,
+  FiRefreshCw,
 } from "react-icons/fi";
 import {
   PieChart,
@@ -46,7 +47,7 @@ function getRecency(lastSeen) {
   const mins = moment().diff(m, "minutes");
   const hours = moment().diff(m, "hours");
   const days = moment().diff(m, "days");
-  const fromNow = m.fromNow();
+  const fromNow = moment(m.add(6, "hours")).fromNow();
   if (mins < 1)
     return {
       label: "Just now",
@@ -113,6 +114,8 @@ export default function Users({ urlFilter, userId }) {
   const [byLocation, setByLocation] = useState([]);
   const [recent, setRecent] = useState([]);
   const [locationCountryFilter, setLocationCountryFilter] = useState(null);
+  // New: explicit loading just for "recent"
+  const [recentLoading, setRecentLoading] = useState(false);
 
   const filterVal = urlFilter?.trim() || null;
 
@@ -166,6 +169,28 @@ export default function Users({ urlFilter, userId }) {
     [filteredLocationRows],
   );
 
+  // function to fetch all user data (all tabs)
+  const fetchAllUserData = () => {
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      api.getUsersByDevice(filterVal, userId),
+      api.getUsersByLocation(filterVal, userId),
+      api.getRecentUsers(50, filterVal, userId),
+    ])
+      .then(([dev, loc, rec]) => {
+        setByDevice(dev?.data ?? []);
+        setByLocation(loc?.data ?? []);
+        setRecent(rec?.data ?? []);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err.message || "Failed to load users");
+        setLoading(false);
+      });
+  };
+
+  // for main mount or changes on dependencies
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -192,6 +217,19 @@ export default function Users({ urlFilter, userId }) {
       cancelled = true;
     };
   }, [filterVal, userId]);
+
+  // function to reload just recent visitors
+  const handleReloadRecent = async () => {
+    setRecentLoading(true);
+    try {
+      const rec = await api.getRecentUsers(50, filterVal, userId);
+      setRecent(rec?.data ?? []);
+    } catch (err) {
+      setError(err.message || "Failed to load recent users");
+    } finally {
+      setRecentLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -629,66 +667,89 @@ export default function Users({ urlFilter, userId }) {
               <div className="text-sm text-slate-400">
                 Most recent:{" "}
                 <span className="font-medium text-emerald-400">
-                  {moment(recent[0].last_seen).fromNow()}
+                  {moment(
+                    moment(recent[0].last_seen).add(6, "hours"),
+                  ).fromNow()}
                 </span>
               </div>
             )}
+            <button
+              type="button"
+              onClick={handleReloadRecent}
+              className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition"
+              disabled={recentLoading}
+              aria-label="Reload recent users"
+            >
+              <FiRefreshCw
+                className={`h-4 w-4 ${recentLoading ? "animate-spin" : ""}`}
+              />
+              Reload
+            </button>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {recent.map((row, i) => {
-              const recency = getRecency(row.last_seen);
-              const location =
-                [row.country, row.city].filter(Boolean).join(", ") || "Unknown";
-              return (
-                <div
-                  key={i}
-                  className="group flex flex-col rounded-xl border border-slate-800 bg-slate-900/40 p-4 transition-colors hover:border-slate-700 hover:bg-slate-800/50"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 flex-1 items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-800">
-                        <DeviceIcon deviceType={row.device_type} />
+            {recentLoading ? (
+              <div className="col-span-full flex justify-center py-10">
+                <FiLoader className="h-6 w-6 animate-spin text-emerald-400" />
+                <span className="ml-2 text-slate-400">Reloading...</span>
+              </div>
+            ) : (
+              recent.map((row, i) => {
+                const recency = getRecency(row.last_seen);
+                const location =
+                  [row.country, row.city].filter(Boolean).join(", ") ||
+                  "Unknown";
+                return (
+                  <div
+                    key={i}
+                    className="group flex flex-col rounded-xl border border-slate-800 bg-slate-900/40 p-4 transition-colors hover:border-slate-700 hover:bg-slate-800/50"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-800">
+                          <DeviceIcon deviceType={row.device_type} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p
+                            className="truncate font-medium text-slate-200"
+                            title={location}
+                          >
+                            {location}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {row.device_type || "Unknown device"} ·{" "}
+                            {Number(row.visit_count || 0).toLocaleString()}{" "}
+                            visit
+                            {(row.visit_count || 0) !== 1 ? "s" : ""}
+                          </p>
+                        </div>
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p
-                          className="truncate font-medium text-slate-200"
-                          title={location}
-                        >
-                          {location}
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          {row.device_type || "Unknown device"} ·{" "}
-                          {Number(row.visit_count || 0).toLocaleString()} visit
-                          {(row.visit_count || 0) !== 1 ? "s" : ""}
-                        </p>
-                      </div>
+                      <span
+                        className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${recency.bg} ${recency.color} ${recency.pulse ? "animate-pulse" : ""}`}
+                        title={
+                          row.last_seen
+                            ? moment(row.last_seen).format("MMM D, YYYY HH:mm")
+                            : ""
+                        }
+                      >
+                        {recency.label}
+                      </span>
                     </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${recency.bg} ${recency.color} ${recency.pulse ? "animate-pulse" : ""}`}
-                      title={
-                        row.last_seen
-                          ? moment(row.last_seen).format("MMM D, YYYY HH:mm")
-                          : ""
-                      }
-                    >
-                      {recency.label}
-                    </span>
+                    <div className="mt-3 flex items-center gap-2 border-t border-slate-800/80 pt-3">
+                      <span
+                        className="font-mono text-xs text-slate-500"
+                        title="IP"
+                      >
+                        {row.ip_address || "—"}
+                      </span>
+                    </div>
                   </div>
-                  <div className="mt-3 flex items-center gap-2 border-t border-slate-800/80 pt-3">
-                    <span
-                      className="font-mono text-xs text-slate-500"
-                      title="IP"
-                    >
-                      {row.ip_address || "—"}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
 
-          {recent.length === 0 && (
+          {recent.length === 0 && !recentLoading && (
             <div className="rounded-xl border border-slate-800 bg-slate-900/30 py-16 text-center text-slate-500">
               No recent visitors to show.
             </div>
@@ -718,36 +779,56 @@ export default function Users({ urlFilter, userId }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {recent.map((row, i) => (
-                    <tr
-                      key={i}
-                      className="border-b border-slate-800/80 hover:bg-slate-800/40"
-                    >
-                      <td className="px-4 py-3 font-mono text-slate-400">
-                        {row.ip_address || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-300">
-                        {row.device_type || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-300">
-                        {[row.country, row.city].filter(Boolean).join(", ") ||
-                          "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-300">
-                        {row.visit_count ?? "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-400">
-                        {row.last_seen
-                          ? moment(row.last_seen).format("MMM D, HH:mm")
-                          : "—"}
-                        {row.last_seen && (
-                          <span className="ml-1.5 text-slate-500">
-                            ({moment(row.last_seen).fromNow()})
-                          </span>
-                        )}
+                  {recentLoading ? (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className="px-4 py-6 text-center text-slate-400"
+                      >
+                        <span className="flex items-center justify-center">
+                          <FiLoader className="h-5 w-5 animate-spin text-emerald-400" />
+                          <span className="ml-2">Reloading...</span>
+                        </span>
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    recent.map((row, i) => (
+                      <tr
+                        key={i}
+                        className="border-b border-slate-800/80 hover:bg-slate-800/40"
+                      >
+                        <td className="px-4 py-3 font-mono text-slate-400">
+                          {row.ip_address || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-300">
+                          {row.device_type || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-300">
+                          {[row.country, row.city].filter(Boolean).join(", ") ||
+                            "—"}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-300">
+                          {row.visit_count ?? "—"}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-400">
+                          {row.last_seen
+                            ? moment(row.last_seen)
+                                .add(6, "hours")
+                                .format("MMM D, hh:mm A")
+                            : "—"}
+                          {row.last_seen && (
+                            <span className="ml-1.5 text-slate-500">
+                              (
+                              {moment(
+                                moment(row.last_seen).add(6, "hours"),
+                              ).fromNow()}
+                              )
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
