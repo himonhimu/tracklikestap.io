@@ -9,12 +9,15 @@ import {
   getEventsByType,
   getEventsByTime,
   getRecentUniqueUsers,
+  getEventsByIpGrouped,
 } from "../analytics-queries.js";
 
 const router = express.Router();
 
 function getUrlFilter(req) {
-  return req.effectiveUrlFilter !== undefined ? req.effectiveUrlFilter : (req.query.url_contains || req.query.urlContains || null);
+  return req.effectiveUrlFilter !== undefined
+    ? req.effectiveUrlFilter
+    : req.query.url_contains || req.query.urlContains || null;
 }
 
 /**
@@ -143,7 +146,24 @@ router.get("/events/:eventType/by-time", async (req, res) => {
     const dateFrom = req.query.date_from || req.query.dateFrom || null;
     const dateTo = req.query.date_to || req.query.dateTo || null;
     const urlContains = getUrlFilter(req);
-    const data = await getEventsByTime(eventType, granularity, urlContains, days, dateFrom, dateTo);
+    const data = await getEventsByTime(
+      eventType,
+      granularity,
+      urlContains,
+      days,
+      dateFrom,
+      dateTo,
+    );
+    res.json({ data: data || [] });
+  } catch (err) {
+    console.error("[api/analytics] Failed to get events by time:", err);
+    res.status(500).json({ error: "Failed to get events by time" });
+  }
+});
+router.get("/events/by-ip/grouped", async (req, res) => {
+  try {
+    const ip = req.query.ip || null;
+    const data = await getEventsByIpGrouped(ip);
     res.json({ data: data || [] });
   } catch (err) {
     console.error("[api/analytics] Failed to get events by time:", err);

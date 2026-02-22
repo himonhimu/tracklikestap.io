@@ -9,6 +9,7 @@ import {
   FiSmartphone,
   FiTablet,
   FiRefreshCw,
+  FiEye,
 } from "react-icons/fi";
 import {
   PieChart,
@@ -25,6 +26,7 @@ import {
 } from "recharts";
 import moment from "moment";
 import { api } from "../api/client";
+import { FaTimesCircle } from "react-icons/fa";
 
 const CHART_COLORS = [
   "#10b981",
@@ -106,6 +108,19 @@ const TABS = [
   { id: "recent", label: "Recent users", icon: FiClock },
 ];
 
+// Helper: summarize total visits for a given IP from event history
+function getVisitBreakdownForIP(events, ip) {
+  // Expect events is an array of { ip_address, event_type, ... }
+  if (!Array.isArray(events) || !ip) return {};
+  // Aggregate count by event_type
+  const breakdown = {};
+  for (const ev of events) {
+    if (ev.ip_address !== ip) continue;
+    breakdown[ev.event_type] = (breakdown[ev.event_type] || 0) + 1;
+  }
+  return breakdown;
+}
+
 export default function Users({ urlFilter, userId }) {
   const [tab, setTab] = useState("device");
   const [loading, setLoading] = useState(true);
@@ -116,6 +131,9 @@ export default function Users({ urlFilter, userId }) {
   const [locationCountryFilter, setLocationCountryFilter] = useState(null);
   // New: explicit loading just for "recent"
   const [recentLoading, setRecentLoading] = useState(false);
+  const [viewVisit, setViewVisit] = useState(null);
+  // New: store all event rows, for IP breakdown (populates when viewing a visit)
+  const [events, setEvents] = useState([]);
 
   const filterVal = urlFilter?.trim() || null;
 
@@ -231,6 +249,20 @@ export default function Users({ urlFilter, userId }) {
     }
   };
 
+  // On opening of viewVisit (detail panel), fetch events if needed
+  useEffect(() => {
+    if (!viewVisit) return;
+    // Only fetch if we have not loaded or if for different ip
+    // Optionally: we could fetch for all recent events up front and cache, but here show for just current IP
+    setEvents([]); // clear before loading
+    api
+      .getEventsByIp
+      ? api.getEventsByIp(viewVisit.ip_address).then((result) => {
+        setEvents(result?.data ?? []);
+      })
+      : Promise.resolve(); // fallback if api does not exist
+  }, [viewVisit]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -259,17 +291,88 @@ export default function Users({ urlFilter, userId }) {
           </span>
         </p>
       )}
+      {viewVisit && (
+        <div className="fixed top-0 right-0 z-50 flex items-center justify-center h-screen w-screen bg-black/20 backdrop-blur-xs ">
+          <div className="flex items-center justify-between w-full max-w-3xl bg-slate-900 p-4 border-4 border-slate-500 rounded-md ">
+            <div className=" w-full max-h-[80vh] overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <h2 className="mb-3 text-lg font-semibold text-slate-200">
+                  Visit details {viewVisit.ip_address}
+                </h2>
+
+                <button
+                  className=" text-slate-400 hover:text-slate-300 cursor-pointer"
+                  onClick={() => {
+                    setViewVisit(null);
+                    document.body.style.overflow = "auto";
+                  }}
+                >
+                  <FaTimesCircle />
+                  {/* <FiX className="h-4 w-4" /> */}
+                </button>
+              </div>
+              {/* Replace raw JSON with summary table if possible */}
+              <div className="text-slate-300 break-all w-full">
+                <div className="mb-2 text-slate-400 text-xs">
+                  <span className="font-bold">{viewVisit.device_type || "Device"}</span>{" "}
+                  · <span>{[viewVisit.country, viewVisit.city].filter(Boolean).join(", ")}</span>
+                </div>
+                {/* Event Breakdown for this IP */}
+                <div className="mb-2 w-full">
+                  <p className="text-sm text-slate-400 mb-1">Event breakdown for <span className="font-mono">{viewVisit.ip_address}</span>:</p>
+                  {events.length === 0 ? (
+                    <span className="text-xs text-slate-500">Loading visit event details...</span>
+                  ) : (
+                    <table className=" text-xs border mt-1 rounded bg-slate-800/60 w-full">
+                      <thead>
+                        <tr className="bg-slate-900 text-slate-300 border-b border-slate-700">
+                          <th className="text-left px-3 py-2">SL</th>
+                          <th className="text-left px-3 py-2">Event type</th>
+                          <th className="text-left px-3 py-2">Path</th>
+                          <th className="text-left px-3 py-2">Time</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {events
+                          .filter((evt) => evt.ip_address === viewVisit.ip_address)
+                          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                          .map((evt, idx) => (
+                            <tr key={evt.id || idx} className="border-b border-slate-800 last:border-b-0">
+                              <td className="px-3 py-2 text-slate-200 text-nowrap">{idx + 1}</td>
+                              <td className="px-3 py-2 text-slate-200">{evt.event_type}</td>
+                              <td className="px-3 py-2 text-slate-300 font-mono  " title={evt.path}>
+                                {evt.path || "—"}
+                              </td>
+                              <td className="px-3 py-2 text-slate-400">
+                                {evt.created_at ?
+                                  (window.moment
+                                    ? window.moment(evt.created_at).format("MMM D, hh:mm A")
+                                    : new Date(evt.created_at).toLocaleString()
+                                  )
+                                  : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-2 border-b border-slate-800 pb-2">
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
-            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
-              tab === id
-                ? "bg-slate-700 text-white"
-                : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-            }`}
+            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${tab === id
+              ? "bg-slate-700 text-white"
+              : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              }`}
           >
             <Icon className="h-4 w-4" />
             {label}
@@ -277,6 +380,7 @@ export default function Users({ urlFilter, userId }) {
         ))}
       </div>
 
+      {/* ... rest of main UI unchanged ... */}
       {tab === "device" && (
         <>
           <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4">
@@ -365,6 +469,7 @@ export default function Users({ urlFilter, userId }) {
         </>
       )}
 
+      {/* ... tabs 'location' and 'recent' below remain unchanged ... */}
       {tab === "location" && (
         <>
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -655,6 +760,7 @@ export default function Users({ urlFilter, userId }) {
         </>
       )}
 
+      {/* ... rest of tab: recent unchanged ... */}
       {tab === "recent" && (
         <>
           <div className="flex flex-wrap items-center gap-4">
@@ -735,13 +841,23 @@ export default function Users({ urlFilter, userId }) {
                         {recency.label}
                       </span>
                     </div>
-                    <div className="mt-3 flex items-center gap-2 border-t border-slate-800/80 pt-3">
+                    <div className="mt-3 flex items-center gap-2 border-t border-slate-800/80 pt-3 justify-between">
                       <span
                         className="font-mono text-xs text-slate-500"
                         title="IP"
                       >
                         {row.ip_address || "—"}
                       </span>
+                      <div>
+                        <FiEye
+                          className="h-4 w-4 text-slate-400 cursor-pointer hover:text-slate-300"
+                          title="View details"
+                          onClick={() => {
+                            setViewVisit(row);
+                            document.body.style.overflow = "hidden";
+                          }}
+                        />
+                      </div>
                     </div>
                   </div>
                 );
@@ -813,8 +929,8 @@ export default function Users({ urlFilter, userId }) {
                         <td className="px-4 py-3 text-right text-slate-400">
                           {row.last_seen
                             ? moment(row.last_seen)
-                                .add(6, "hours")
-                                .format("MMM D, hh:mm A")
+                              .add(6, "hours")
+                              .format("MMM D, hh:mm A")
                             : "—"}
                           {row.last_seen && (
                             <span className="ml-1.5 text-slate-500">

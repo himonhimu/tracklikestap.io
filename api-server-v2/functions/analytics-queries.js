@@ -70,7 +70,8 @@ export async function getUniqueUsersByLocation(urlContains = null) {
       sql += " AND full_url LIKE ?";
       params.push("%" + String(urlContains).trim() + "%");
     }
-    sql += " GROUP BY country, region, city, district ORDER BY count DESC LIMIT 100";
+    sql +=
+      " GROUP BY country, region, city, district ORDER BY count DESC LIMIT 100";
     const [rows] = await db.execute(sql, params);
     return rows;
   } catch (err) {
@@ -101,7 +102,7 @@ export async function getEventCounts(urlContains = null) {
     const totalCount = rows.reduce((acc, row) => acc + row.count, 0);
     return {
       data: rows,
-      totalCount: totalCount
+      totalCount: totalCount,
     };
   } catch (err) {
     console.error("[analytics] Failed to get event counts:", err);
@@ -143,7 +144,7 @@ export async function getPurchaseEvents(limit = 50, urlContains = null) {
  * @param {string|null} urlContains - optional: filter where full_url, path, or host contains this string
  */
 export async function getAddToCartEvents(limit = 50, urlContains = null) {
-  return getEventsByType('AddToCart', limit, urlContains);
+  return getEventsByType("AddToCart", limit, urlContains);
 }
 
 /**
@@ -152,9 +153,13 @@ export async function getAddToCartEvents(limit = 50, urlContains = null) {
  * @param {number} limit
  * @param {string|null} urlContains - optional: filter where full_url, path, or host contains this string
  */
-export async function getEventsByType(eventType, limit = 50, urlContains = null) {
+export async function getEventsByType(
+  eventType,
+  limit = 50,
+  urlContains = null,
+) {
   const db = getDb();
-  if (!db || !eventType || typeof eventType !== 'string') return null;
+  if (!db || !eventType || typeof eventType !== "string") return null;
 
   try {
     let sql = `SELECT id, path, full_url, ip_address, device_type, value, currency, product_data, created_at
@@ -181,8 +186,12 @@ export async function getEventsByType(eventType, limit = 50, urlContains = null)
  * @param {string|null} urlContains - optional: filter where full_url, path, or host contains this string
  * @param {number} days - number of days to look back (default 30 for daily, 7 for hourly to limit points)
  */
-export async function getAddToCartByTime(granularity = 'daily', urlContains = null, days = null) {
-  return getEventsByTime('AddToCart', granularity, urlContains, days);
+export async function getAddToCartByTime(
+  granularity = "daily",
+  urlContains = null,
+  days = null,
+) {
+  return getEventsByTime("AddToCart", granularity, urlContains, days);
 }
 
 /**
@@ -194,12 +203,28 @@ export async function getAddToCartByTime(granularity = 'daily', urlContains = nu
  * @param {string|null} dateFrom - optional YYYY-MM-DD start date (inclusive)
  * @param {string|null} dateTo - optional YYYY-MM-DD end date (inclusive)
  */
-export async function getEventsByTime(eventType, granularity = 'daily', urlContains = null, days = null, dateFrom = null, dateTo = null) {
+export async function getEventsByTime(
+  eventType,
+  granularity = "daily",
+  urlContains = null,
+  days = null,
+  dateFrom = null,
+  dateTo = null,
+) {
   const db = getDb();
-  if (!db || !eventType || typeof eventType !== 'string') return null;
+  if (!db || !eventType || typeof eventType !== "string") return null;
 
-  const useCustomRange = dateFrom && dateTo && /^\d{4}-\d{2}-\d{2}$/.test(String(dateFrom).trim()) && /^\d{4}-\d{2}-\d{2}$/.test(String(dateTo).trim());
-  const lookBack = days != null ? Math.max(1, parseInt(days, 10)) : (granularity === 'hourly' ? 7 : 30);
+  const useCustomRange =
+    dateFrom &&
+    dateTo &&
+    /^\d{4}-\d{2}-\d{2}$/.test(String(dateFrom).trim()) &&
+    /^\d{4}-\d{2}-\d{2}$/.test(String(dateTo).trim());
+  const lookBack =
+    days != null
+      ? Math.max(1, parseInt(days, 10))
+      : granularity === "hourly"
+        ? 7
+        : 30;
 
   try {
     let sql;
@@ -208,7 +233,7 @@ export async function getEventsByTime(eventType, granularity = 'daily', urlConta
     if (useCustomRange) {
       const from = String(dateFrom).trim() + " 00:00:00";
       const to = String(dateTo).trim() + " 23:59:59";
-      if (granularity === 'hourly') {
+      if (granularity === "hourly") {
         sql = `SELECT 
           DATE_FORMAT(created_at, '%Y-%m-%d %H:00') AS period,
           COUNT(*) AS count
@@ -224,7 +249,7 @@ export async function getEventsByTime(eventType, granularity = 'daily', urlConta
         params.push(String(eventType).trim(), from, to);
       }
     } else {
-      if (granularity === 'hourly') {
+      if (granularity === "hourly") {
         sql = `SELECT 
           DATE_FORMAT(created_at, '%Y-%m-%d %H:00') AS period,
           COUNT(*) AS count
@@ -278,6 +303,20 @@ export async function getRecentUniqueUsers(limit = 50, urlContains = null) {
     return rows;
   } catch (err) {
     console.error("[analytics] Failed to get recent users:", err);
+    return null;
+  }
+}
+
+export async function getEventsByIpGrouped(ip = null) {
+  const db = getDb();
+  if (!db) return null;
+
+  try {
+    let sql = `SELECT * FROM events WHERE ip_address = ?`;
+    const [rows] = await db.execute(sql, [ip]);
+    return rows;
+  } catch (err) {
+    console.error("[analytics] Failed to get events by ip grouped:", err);
     return null;
   }
 }

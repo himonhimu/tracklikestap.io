@@ -157,9 +157,8 @@ export default function Events({ urlFilter, userId }) {
           <button
             key={id}
             onClick={() => setTab(id)}
-            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
-              tab === id ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-            }`}
+            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${tab === id ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
           >
             <Icon className="h-4 w-4 shrink-0" />
             {label}
@@ -183,11 +182,10 @@ export default function Events({ urlFilter, userId }) {
                       setCustomFrom(moment().subtract(6, 'days').format('YYYY-MM-DD'))
                     }
                   }}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                    dateRangePreset === preset.id
-                      ? 'bg-emerald-500/30 text-emerald-400'
-                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }`}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${dateRangePreset === preset.id
+                    ? 'bg-emerald-500/30 text-emerald-400'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
                 >
                   {preset.label}
                 </button>
@@ -215,11 +213,10 @@ export default function Events({ urlFilter, userId }) {
                 <button
                   key={opt.id}
                   onClick={() => setChartGranularity(opt.id)}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                    chartGranularity === opt.id
-                      ? 'bg-emerald-500/30 text-emerald-400'
-                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }`}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${chartGranularity === opt.id
+                    ? 'bg-emerald-500/30 text-emerald-400'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
                 >
                   {opt.label}
                 </button>
@@ -291,6 +288,7 @@ export default function Events({ urlFilter, userId }) {
               <th className="px-4 py-3 font-medium text-slate-300">Path</th>
               <th className="px-4 py-3 font-medium text-slate-300">Device</th>
               <th className="px-4 py-3 font-medium text-slate-300">Value</th>
+              {/* <th className="px-4 py-3 font-medium text-slate-300">IP Address</th> */}
               <th className="px-4 py-3 font-medium text-slate-300">Product</th>
             </tr>
           </thead>
@@ -307,7 +305,7 @@ export default function Events({ urlFilter, userId }) {
                 return (
                   <tr key={row.id} className="border-b border-slate-800/80 hover:bg-slate-800/40">
                     <td className="px-4 py-3 text-slate-400">
-                      {row.created_at ? moment(row.created_at).format('MMM D, HH:mm') : '—'}
+                      {row.created_at ? moment(row.created_at).format('MMM D, hh:mm A') : '—'}
                     </td>
                     <td className="px-4 py-3 font-mono text-slate-300 truncate max-w-[200px]" title={row.path}>
                       {row.path || '—'}
@@ -316,8 +314,12 @@ export default function Events({ urlFilter, userId }) {
                     <td className="px-4 py-3 text-emerald-400">
                       {row.value != null ? `${row.currency || ''} ${Number(row.value).toFixed(2)}` : '—'}
                     </td>
+                    {/* <td className="px-4 py-3 text-slate-300">
+                      {JSON.stringify(row)}
+                    </td> */}
                     <td className="px-4 py-3 text-slate-300">
-                      {product?.name || product?.id || '—'}
+                      {/* {product?.name || product?.id || '—'} */}
+                      {product?.map((p) => p.name + ' - ' + (p.quantity || 1) + ' pcs').join(', ')}
                     </td>
                   </tr>
                 )
