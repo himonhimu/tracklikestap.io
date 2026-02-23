@@ -120,17 +120,20 @@ export async function processEvent(eventData, req) {
       );
 
       // Check if IP exists in unique_users
+      // Check if there is a unique user with this IP and a full_url that matches the site's domain (host)
+      const urlObj = new URL(event.full_url);
+      const baseUrl = urlObj.origin;
       let exists = false;
       try {
         const [rows] = await db.execute(
-          "SELECT 1 FROM unique_users WHERE ip_address = ? LIMIT 1",
-          [ipAddress]
+          "SELECT 1 FROM unique_users WHERE ip_address = ? AND full_url LIKE CONCAT('%', ?, '%') LIMIT 1",
+          [ipAddress, baseUrl]
         );
         if (rows && rows.length > 0) {
           exists = true;
         }
       } catch (err) {
-        console.error("[utils] Failed to check IP existence in DB:", err);
+        console.error("[utils] Failed to check IP/full_url existence in DB:", err);
       }
 
       if (!exists) {
