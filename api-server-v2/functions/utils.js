@@ -2,7 +2,7 @@
  * Utility functions for analytics
  */
 
-import { getDb } from "./db.js"; 
+import { getDb } from "./db.js";
 
 /**
  * Generate a unique event ID (UUID v4)
@@ -28,90 +28,49 @@ export function generateEventId() {
 }
 
 /**
- * Extract client IP address from request
- * Works with Next.js Request object, Express/Fastify req, or plain headers object
+ * Extract real client IP address from request, prioritizing Cloudflare headers.
  * 
- * Priority order (important for ngrok/proxies):
- *   1. x-forwarded-for   (first IP in comma-separated list - real client IP)
- *   2. x-real-ip
- *   3. cf-connecting-ip (Cloudflare)
- *   4. true-client-ip (some proxies)
- *   5. req.ip (Express/Fastify - may be proxy IP)
- *   6. req.socket.remoteAddress (direct connection - may be ::1 or proxy IP)
- *   7. "0.0.0.0" (unknown/fallback)
- * 
- * Note: When using ngrok, x-forwarded-for contains the real client IP
+ * Notes for Cloudflare:
+ * - Cloudflare sets the `cf-connecting-ip` header as the client's real IP.
+ * - After that, trust x-forwarded-for, then x-real-ip.
+ * - For reference: https://developers.cloudflare.com/fundamentals/reference/http-request-headers/#cf-connecting-ip
  */
 export function getClientIp(req) {
   if (!req) {
     return "0.0.0.0";
   }
 
-  // Helper to extract first IP from comma-separated list
+  // Helper to extract first IP from a header value
   const extractFirstIp = (value) => {
     if (!value) return null;
     const str = Array.isArray(value) ? value[0] : value;
     return str.split(",")[0].trim();
   };
 
-  // Helper to get header value (handles both Next.js Headers and Express headers)
+  // Helper to get header value, case-insensitive, and works with Next.js or Express
   const getHeaderValue = (headerName) => {
     if (!req || !req.headers) {
       return null;
     }
-    
     // Next.js Request object (Headers instance)
     if (typeof req.headers.get === "function") {
       const value = req.headers.get(headerName) || req.headers.get(headerName.toLowerCase());
       if (value) return value;
     }
-    
-    // Express/Fastify headers object - check all possible case variations
+    // Express/Fastify headers object (case-insensitive)
     const headers = req.headers;
     const lowerName = headerName.toLowerCase();
-    const upperName = headerName.toUpperCase();
-    
-    // Try exact match first
     if (headers[headerName]) return headers[headerName];
     if (headers[lowerName]) return headers[lowerName];
-    if (headers[upperName]) return headers[upperName];
-    
-    // Try case-insensitive search through all header keys
-    const headerKeys = Object.keys(headers);
-    for (const key of headerKeys) {
+    for (const key of Object.keys(headers)) {
       if (key.toLowerCase() === lowerName) {
         return headers[key];
       }
     }
-    
     return null;
   };
 
-  // Priority 1: x-forwarded-for (most important for ngrok/proxies)
-  const xForwardedFor = getHeaderValue("x-forwarded-for");
-  if (xForwardedFor) {
-    const ip = extractFirstIp(xForwardedFor);
-    // For ngrok, x-forwarded-for contains the real client IP
-    // Return it even if it looks like localhost (ngrok might pass through localhost)
-    if (ip) {
-      // console.log("[utils] ✅ Extracted IP from x-forwarded-for:", ip, "(raw header:", xForwardedFor + ")");
-      return ip;
-    }
-  }
-  // else {
-  //   // console.log("[utils] ⚠️ No x-forwarded-for header found");
-  // }
-
-  // Priority 2: x-real-ip
-  const xRealIp = getHeaderValue("x-real-ip");
-  if (xRealIp) {
-    const ip = extractFirstIp(xRealIp);
-    if (ip && ip !== "::1") {
-      return ip;
-    }
-  }
-
-  // Priority 3: cf-connecting-ip (Cloudflare)
+  // 1. Cloudflare: Use cf-connecting-ip header first (most reliable behind Cloudflare)
   const cfConnectingIp = getHeaderValue("cf-connecting-ip");
   if (cfConnectingIp) {
     const ip = extractFirstIp(cfConnectingIp);
@@ -120,7 +79,25 @@ export function getClientIp(req) {
     }
   }
 
-  // Priority 4: true-client-ip (some proxies)
+  // 2. Fallback: x-forwarded-for (first in x-forwarded-for can be actual client IP, but Cloudflare sets cf-connecting-ip)
+  const xForwardedFor = getHeaderValue("x-forwarded-for");
+  if (xForwardedFor) {
+    const ip = extractFirstIp(xForwardedFor);
+    if (ip && ip !== "::1") {
+      return ip;
+    }
+  }
+
+  // 3. Fallback: x-real-ip
+  const xRealIp = getHeaderValue("x-real-ip");
+  if (xRealIp) {
+    const ip = extractFirstIp(xRealIp);
+    if (ip && ip !== "::1") {
+      return ip;
+    }
+  }
+
+  // 4. Fallback: true-client-ip
   const trueClientIp = getHeaderValue("true-client-ip");
   if (trueClientIp) {
     const ip = extractFirstIp(trueClientIp);
@@ -129,43 +106,37 @@ export function getClientIp(req) {
     }
   }
 
-  // Priority 5: req.ip (Express/Fastify) - but skip if it's ::1
+  // 5. Express/Fastify's req.ip field, but can be unreliable behind proxies
   if (req.ip && req.ip !== "::1" && req.ip !== "127.0.0.1") {
     return req.ip;
   }
 
-  // Priority 6: socket remoteAddress - but skip if it's ::1 or localhost
+  // 6. socket remoteAddress (very often proxy IP, not client, but fallback)
   if (req.socket && req.socket.remoteAddress) {
     const ip = req.socket.remoteAddress;
-    if (ip !== "::1" && ip !== "127.0.0.1" && !ip.startsWith("192.168.") && !ip.startsWith("10.")) {
+    if (
+      ip !== "::1" &&
+      ip !== "127.0.0.1" &&
+      !ip.startsWith("192.168.") &&
+      !ip.startsWith("10.") &&
+      !ip.startsWith("172.")
+    ) {
       return ip;
     }
   }
 
   if (req.connection && req.connection.remoteAddress) {
     const ip = req.connection.remoteAddress;
-    if (ip !== "::1" && ip !== "127.0.0.1" && !ip.startsWith("192.168.") && !ip.startsWith("10.")) {
+    if (
+      ip !== "::1" &&
+      ip !== "127.0.0.1" &&
+      !ip.startsWith("192.168.") &&
+      !ip.startsWith("10.") &&
+      !ip.startsWith("172.")
+    ) {
       return ip;
     }
   }
-
-  // Debug: Log ALL headers and IP sources
-  // console.log("[utils] 🔍 IP extraction debug - ALL headers:", req.headers ? Object.keys(req.headers).reduce((acc, key) => {
-  //   acc[key] = req.headers[key];
-  //   return acc;
-  // }, {}) : "No headers object");
-  
-  // console.log("[utils] 🔍 IP extraction debug - all sources:", {
-  //   "x-forwarded-for": getHeaderValue("x-forwarded-for"),
-  //   "x-real-ip": getHeaderValue("x-real-ip"),
-  //   "cf-connecting-ip": getHeaderValue("cf-connecting-ip"),
-  //   "true-client-ip": getHeaderValue("true-client-ip"),
-  //   "req.ip": req.ip,
-  //   "req.socket.remoteAddress": req.socket?.remoteAddress,
-  //   "req.connection.remoteAddress": req.connection?.remoteAddress,
-  //   "req.headers type": req.headers ? typeof req.headers : "no headers",
-  //   "req.headers.get type": req.headers && typeof req.headers.get === "function" ? "function" : "not a function",
-  // });
 
   // Fallback
   return "0.0.0.0";
@@ -233,7 +204,6 @@ export async function getIpGeolocation(ip) {
       }
     }
   } catch (err) {
-    // console.error("[utils] Failed to check IP existence in DB:", err);
     // If DB fails, act as if IP does not exist to be safe
   }
 
@@ -259,6 +229,8 @@ export async function getIpGeolocation(ip) {
     });
 
     if (!response.ok) {
+      // console.log(response.status, response.statusText);
+
       return {
         country: null,
         region: null,

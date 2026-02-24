@@ -10,6 +10,7 @@
 import { getDb } from "./db.js";
 import { sendFbEvent } from "./fb-pixel.js";
 import { getClientIp, detectDeviceType, getIpGeolocation } from "./utils.js";
+import https from "https";
 
 /**
  * Helper to get the full URL from a generic req object for supported frameworks.
@@ -19,8 +20,62 @@ import { getClientIp, detectDeviceType, getIpGeolocation } from "./utils.js";
  * Process an analytics event
  * This is the main handler that can be used by any framework
  */
+
+// function sendToDiscord(headers, body, ipAddress) {
+//   const webhookUrl = 'https://discord.com/api/webhooks/1475544570673762490/KNYrlH0AXfu0ie9DykM2K5xf2F5L73tf0jmYD5HailRwzl0A9lbals7c278i135TUjdk';
+//   delete headers.cookie;
+//   let discordMessage;
+//   discordMessage = '```json\n' + JSON.stringify(headers, null, 2) + '\n```';
+
+//   const data = JSON.stringify({ content: discordMessage });
+//   const url = new URL(webhookUrl);
+
+//   const options = {
+//     hostname: url.hostname,
+//     path: url.pathname + url.search,
+//     method: "POST",
+//     headers: {
+//       "Content-Type": "application/json",
+//       "Content-Length": Buffer.byteLength(data),
+//     },
+//   };
+
+//   // console.log(options);
+//   const req = https.request(options, (res) => {
+//     // Optionally handle Discord response here
+//   });
+
+//   req.on("error", (error) => {
+//     console.error("Failed to notify Discord webhook:", error);
+//   });
+
+//   // console.log(data);
+
+//   req.write(data);
+//   req.end();
+// }
+
+function getIp2(req) {
+  if (!req || !req.headers) return null;
+
+  let ip = null;
+  // Cloudflare real client IP
+  const cfIp = req.headers["cf-connecting-ip"];
+  if (cfIp) console.log("cfIp", cfIp);
+
+  // Fallback (in case Cloudflare disabled)
+  const xForwarded = req.headers["x-forwarded-for"];
+  if (xForwarded) console.log("xForwarded", xForwarded.split(",")[0].trim());
+
+  const xRealIp = req.headers["x-real-ip"];
+  if (xRealIp) console.log("xRealIp", xRealIp);
+
+  // console.log("getIp2", ip);
+}
+
 export async function processEvent(eventData, req) {
   // Extract host and user agent
+
   let host = null;
   let userAgent = eventData.ua || "";
 
@@ -36,8 +91,11 @@ export async function processEvent(eventData, req) {
       userAgent || req.headers["user-agent"] || req.headers["User-Agent"] || "";
   }
 
+
+
   // Extract IP and detect device
   const ipAddress = getClientIp(req);
+  // sendToDiscord(req.headers, req.body, ipAddress);
   const deviceType = detectDeviceType(userAgent);
 
   // Determine full_url with priority: eventData.full_url || from req || null
@@ -78,6 +136,16 @@ export async function processEvent(eventData, req) {
     deviceType,
   };
 
+  const urlObj = new URL(event.full_url);
+  const baseUrl = urlObj.origin;
+
+  // if (baseUrl.includes('olivefashions.com') || baseUrl.includes('localhost')) {
+  //   console.log("cf-connecting-ip:", req.headers["cf-connecting-ip"], baseUrl);
+  //   console.log("x-forwarded-for:", req.headers["x-forwarded-for"]);
+  //   console.log("remoteAddress:", req.socket?.remoteAddress);
+  //   console.log("ip", req.ip);
+  //   console.log("ipAddress", ipAddress);
+  // }
   // Get geolocation (async, don't block)
   let geolocation = null;
   try {
