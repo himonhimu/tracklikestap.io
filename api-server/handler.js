@@ -42,20 +42,29 @@ export async function processEvent(eventData, req) {
   const event = {
     host,
     path: eventData.path || null,
+    full_url: eventData.url,
     referrer: eventData.referrer || null,
     ua: userAgent,
-    email: eventData.email || null,
-    phone: eventData.phone || null,
     ts: eventData.ts || Date.now(),
-    event: eventData.event || "PageView", // Event type: PageView, AddToCart, Purchase
-    product: eventData.product || null,
-    products: eventData.products || null,
-    value: eventData.value || null,
-    currency: eventData.currency || null,
-    event_id: eventData.event_id || null, // Event ID for deduplication
+    event: eventData.event || "PageView",
+    phone: eventData.phone || null,
+    email: eventData.email || null,
+    content_ids: eventData.content_ids || [],
+    content_name: eventData.content_name || "Unknown",
+    content_type: eventData.content_type || "product",
+    contents: eventData.contents || [],
+    num_items: eventData.num_items || 1,
+    quantity: eventData.quantity || 1,
+    external_id: eventData.external_id || 0,
+    value: eventData.value || 0,
+    currency: eventData.currency || "BDT",
+    event_id: eventData.event_id || null,
+    _fbc: eventData._fbc || null,
+    _fbp: eventData._fbp || null,
     ipAddress,
     deviceType,
   };
+
 
   // Get geolocation (async, don't block)
   let geolocation = null;

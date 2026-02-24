@@ -36,8 +36,8 @@ function getHost(req) {
   // For Node.js/Express.js headers object
   if (req && req.headers) {
     return req.headers.host ||
-           req.headers.Host ||
-           req.headers["host"];
+      req.headers.Host ||
+      req.headers["host"];
   }
   return null;
 }
@@ -125,81 +125,15 @@ export async function sendFbEvent(eventData, req) {
 
     // Set up customData for the event type
     let customData = {
-      content_name: eventData.path || "Unknown",
+      content_name: eventData.content_name || eventData.path || "Unknown",
+      content_type: eventData.content_type || "product",
+      content_ids: eventData.content_ids || [],
+      num_items: eventData.num_items || 1,
+      quantity: eventData.quantity || 1,
+      value: eventData.value || 0,
+      currency: eventData.currency || "BDT",
     };
 
-    // ADD TO CART
-    if (eventName === "AddToCart" && eventData.product) {
-      customData = {
-        content_name: eventData.product.name,
-        content_ids: [String(eventData.product.id)],
-        content_type: "product",
-        contents: [
-          {
-            id: String(eventData.product.id),
-            quantity: 1,
-            item_price: parseFloat(eventData.product.price),
-          },
-        ],
-        value: parseFloat(eventData.product.price),
-        currency: eventData.product.currency || "USD",
-      };
-    }
-    // PURCHASE - match the shape actually sent from client, fix currency handling
-    else if (eventName === "Purchase" && (eventData.products || eventData.product)) {
-      // Accept both array and single product
-      const currency = eventData.currency ||
-        (eventData.product?.currency || (eventData.products?.[0]?.currency)) ||
-        "BDT"; // Default to BDT since you want that, fallback to USD if not provided
-
-      let contents = [];
-      let content_ids = [];
-      let num_items = 0;
-      let value = 0;
-
-      // If "products" is sent (array)
-      if (Array.isArray(eventData.products) && eventData.products.length > 0) {
-        contents = eventData.products.map((p) => ({
-          id: String(p.id),
-          quantity: parseInt(p.quantity) || 1,
-          item_price: parseFloat(p.price),
-        }));
-        content_ids = eventData.products.map((p) => String(p.id));
-        num_items = eventData.products.reduce(
-          (sum, p) => sum + (parseInt(p.quantity) || 1),
-          0
-        );
-        value =
-          eventData.value ??
-          eventData.products.reduce(
-            (sum, p) => sum + parseFloat(p.price) * (parseInt(p.quantity) || 1),
-            0
-          );
-      } else if (eventData.product) {
-        // If only a single product key sent
-        const p = eventData.product;
-        contents = [
-          {
-            id: String(p.id),
-            quantity: 1,
-            item_price: parseFloat(p.price),
-          },
-        ];
-        content_ids = [String(p.id)];
-        num_items = 1;
-        value = eventData.value ?? parseFloat(p.price);
-      }
-
-      customData = {
-        content_name: "Purchase",
-        content_ids,
-        content_type: "product",
-        contents,
-        value: parseFloat(value),
-        currency,
-        num_items,
-      };
-    }
 
     // Construct eventSourceUrl from most reliable to fallback
     let eventSourceUrl = "";
@@ -218,9 +152,8 @@ export async function sendFbEvent(eventData, req) {
       if (eventData.path) {
         try {
           const refererUrl = new URL(referer);
-          eventSourceUrl = `${refererUrl.origin}${
-            eventData.path.startsWith("/") ? eventData.path : "/" + eventData.path
-          }`;
+          eventSourceUrl = `${refererUrl.origin}${eventData.path.startsWith("/") ? eventData.path : "/" + eventData.path
+            }`;
         } catch {
           eventSourceUrl = referer;
         }
@@ -347,7 +280,7 @@ export async function sendFbEvent(eventData, req) {
 
     if (result.events_received === 0) {
       console.warn("[fb-pixel] ⚠️ Facebook received 0 events. Check payload structure.");
-      console.log("[fb-pixel] Full payload sent:", JSON.stringify(payload, null, 2));
+      // console.log("[fb-pixel] Full payload sent:", JSON.stringify(payload, null, 2));
     } else {
       // console.log(`[fb-pixel] ✅ Successfully sent ${result.events_received} event(s) to Facebook`);
     }
