@@ -1,7 +1,7 @@
 /**
  * Framework-agnostic event handler
  * This can be used with Next.js, Express, Fastify, or any other framework
- * 
+ *
  * @param {Object} eventData - The event data from the client
  * @param {Object} req - The request object (Next.js Request, Express req, etc.)
  * @returns {Promise<Object>} - Response object with success status
@@ -9,11 +9,7 @@
 
 import { getDb } from "./db.js";
 import { sendFbEvent } from "./fb-pixel.js";
-import {
-  getClientIp,
-  detectDeviceType,
-  getIpGeolocation,
-} from "./utils.js";
+import { getClientIp, detectDeviceType, getIpGeolocation } from "./utils.js";
 
 /**
  * Process an analytics event
@@ -32,7 +28,8 @@ export async function processEvent(eventData, req) {
   } else if (req && req.headers) {
     // Standard headers object (Express, Fastify, etc.)
     host = req.headers.host || req.headers.Host || req.headers["host"];
-    userAgent = userAgent || req.headers["user-agent"] || req.headers["User-Agent"] || "";
+    userAgent =
+      userAgent || req.headers["user-agent"] || req.headers["User-Agent"] || "";
   }
 
   // Extract IP and detect device
@@ -65,7 +62,6 @@ export async function processEvent(eventData, req) {
     deviceType,
   };
 
-
   // Get geolocation (async, don't block)
   let geolocation = null;
   try {
@@ -84,6 +80,8 @@ export async function processEvent(eventData, req) {
         productData = JSON.stringify(event.product);
       } else if (event.products) {
         productData = JSON.stringify(event.products);
+      } else if (event.contents) {
+        productData = JSON.stringify(event.contents);
       }
 
       // Insert event
@@ -103,15 +101,15 @@ export async function processEvent(eventData, req) {
           productData,
           event.value || null,
           event.currency || null,
-        ]
+        ],
       );
 
       // Check if IP exists in unique_users
       let exists = false;
       try {
         const [rows] = await db.execute(
-          "SELECT 1 FROM unique_users WHERE ip_address = ? LIMIT 1",
-          [ipAddress]
+          "SELECT 1 FROM unique_users WHERE ip_address = ? AND path = ? LIMIT 1",
+          [ipAddress, event.path],
         );
         if (rows && rows.length > 0) {
           exists = true;
@@ -124,8 +122,8 @@ export async function processEvent(eventData, req) {
         if (geolocation) {
           await db.execute(
             `INSERT INTO unique_users (
-              ip_address, device_type, user_agent, country, region, city, district, latitude, longitude, visit_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+              ip_address, device_type, user_agent, country, region, city, district, latitude, longitude, visit_count, path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
             ON DUPLICATE KEY UPDATE
               last_seen = CURRENT_TIMESTAMP,
               visit_count = visit_count + 1,
@@ -134,44 +132,52 @@ export async function processEvent(eventData, req) {
               city = COALESCE(?, city),
               district = COALESCE(?, district),
               latitude = COALESCE(?, latitude),
-              longitude = COALESCE(?, longitude)`,
+              longitude = COALESCE(?, longitude),
+              path = COALESCE(?, path)`,
             [
+              // VALUES section (10)
               ipAddress,
               deviceType,
               userAgent,
-              geolocation.country,
-              geolocation.region,
-              geolocation.city,
-              geolocation.district,
-              geolocation.latitude,
-              geolocation.longitude,
-              geolocation.country,
-              geolocation.region,
-              geolocation.city,
-              geolocation.district,
-              geolocation.latitude,
-              geolocation.longitude,
-            ]
+              geolocation?.country ?? null,
+              geolocation?.region ?? null,
+              geolocation?.city ?? null,
+              geolocation?.district ?? null,
+              geolocation?.latitude ?? null,
+              geolocation?.longitude ?? null,
+              event?.path ?? null, // ✅ THIS WAS MISSING
+
+              // UPDATE section (7)
+              geolocation?.country ?? null,
+              geolocation?.region ?? null,
+              geolocation?.city ?? null,
+              geolocation?.district ?? null,
+              geolocation?.latitude ?? null,
+              geolocation?.longitude ?? null,
+              event?.path ?? null,
+            ],
           );
         } else {
           // Insert without geolocation
           await db.execute(
             `INSERT INTO unique_users (
-              ip_address, device_type, user_agent, visit_count
-            ) VALUES (?, ?, ?, 1)
+              ip_address, device_type, user_agent, visit_count, path
+            ) VALUES (?, ?, ?, 1, ?)
             ON DUPLICATE KEY UPDATE
               last_seen = CURRENT_TIMESTAMP,
-              visit_count = visit_count + 1`,
-            [ipAddress, deviceType, userAgent]
+              visit_count = visit_count + 1,
+              path = COALESCE(?, path)`,
+            [ipAddress, deviceType, userAgent, event.path],
           );
         }
       } else {
         await db.execute(
           `UPDATE unique_users SET
             last_seen = CURRENT_TIMESTAMP,
-            visit_count = visit_count + 1
-          WHERE ip_address = ?`,
-          [ipAddress]
+            visit_count = visit_count + 1,
+            path = COALESCE(?, path)
+          WHERE ip_address = ? AND path = ?`,
+          [event.path, ipAddress, event.path],
         );
       }
     }

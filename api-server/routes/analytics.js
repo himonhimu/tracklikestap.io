@@ -17,7 +17,7 @@ const router = express.Router();
  */
 router.get("/users/total", async (req, res) => {
   try {
-    const count = await getTotalUniqueUsers();
+    const count = await getTotalUniqueUsers(req);
     res.json({ count });
   } catch (err) {
     console.error("[api/analytics] Failed to get total users:", err);
@@ -31,7 +31,7 @@ router.get("/users/total", async (req, res) => {
  */
 router.get("/users/by-device", async (req, res) => {
   try {
-    const data = await getUniqueUsersByDevice();
+    const data = await getUniqueUsersByDevice(req);
     res.json({ data });
   } catch (err) {
     console.error("[api/analytics] Failed to get users by device:", err);
@@ -45,7 +45,7 @@ router.get("/users/by-device", async (req, res) => {
  */
 router.get("/users/by-location", async (req, res) => {
   try {
-    const data = await getUniqueUsersByLocation();
+    const data = await getUniqueUsersByLocation(req);
     res.json({ data });
   } catch (err) {
     console.error("[api/analytics] Failed to get users by location:", err);
@@ -59,8 +59,7 @@ router.get("/users/by-location", async (req, res) => {
  */
 router.get("/events/counts", async (req, res) => {
   try {
-    const data = await getEventCounts();
-    // console.log(data);
+    const data = await getEventCounts(req);
     res.json({ ...data });
   } catch (err) {
     console.error("[api/analytics] Failed to get event counts:", err);
@@ -76,7 +75,7 @@ router.get("/events/counts", async (req, res) => {
 router.get("/events/purchases", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
-    const data = await getPurchaseEvents(limit);
+    const data = await getPurchaseEvents(req, limit);
     res.json({ data });
   } catch (err) {
     console.error("[api/analytics] Failed to get purchase events:", err);
@@ -92,7 +91,7 @@ router.get("/events/purchases", async (req, res) => {
 router.get("/events/add-to-cart", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
-    const data = await getAddToCartEvents(limit);
+    const data = await getAddToCartEvents(req, limit);
     res.json({ data });
   } catch (err) {
     console.error("[api/analytics] Failed to get add to cart events:", err);
@@ -108,7 +107,7 @@ router.get("/events/add-to-cart", async (req, res) => {
 router.get("/users/recent", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
-    const data = await getRecentUniqueUsers(limit);
+    const data = await getRecentUniqueUsers(req, limit);
     res.json({ data });
   } catch (err) {
     console.error("[api/analytics] Failed to get recent users:", err);
