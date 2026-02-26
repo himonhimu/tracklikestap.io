@@ -91,8 +91,6 @@ export async function processEvent(eventData, req) {
       userAgent || req.headers["user-agent"] || req.headers["User-Agent"] || "";
   }
 
-
-
   // Extract IP and detect device
   const ipAddress = getClientIp(req);
   // sendToDiscord(req.headers, req.body, ipAddress);
@@ -110,6 +108,7 @@ export async function processEvent(eventData, req) {
       path = req.url;
     }
   }
+  // console.log("eventData", eventData);
   const event = {
     host,
     path: path,
@@ -184,7 +183,7 @@ export async function processEvent(eventData, req) {
           productData,
           event.value || null,
           event.currency || null,
-        ]
+        ],
       );
 
       // Check if IP exists in unique_users
@@ -195,13 +194,16 @@ export async function processEvent(eventData, req) {
       try {
         const [rows] = await db.execute(
           "SELECT 1 FROM unique_users WHERE ip_address = ? AND full_url LIKE CONCAT('%', ?, '%') LIMIT 1",
-          [ipAddress, baseUrl]
+          [ipAddress, baseUrl],
         );
         if (rows && rows.length > 0) {
           exists = true;
         }
       } catch (err) {
-        console.error("[utils] Failed to check IP/full_url existence in DB:", err);
+        console.error(
+          "[utils] Failed to check IP/full_url existence in DB:",
+          err,
+        );
       }
 
       if (!exists) {
@@ -236,7 +238,7 @@ export async function processEvent(eventData, req) {
               geolocation.district,
               geolocation.latitude,
               geolocation.longitude,
-            ]
+            ],
           );
         } else {
           // Insert without geolocation
@@ -247,7 +249,7 @@ export async function processEvent(eventData, req) {
             ON DUPLICATE KEY UPDATE
               last_seen = CURRENT_TIMESTAMP,
               visit_count = visit_count + 1`,
-            [ipAddress, deviceType, userAgent, event.full_url]
+            [ipAddress, deviceType, userAgent, event.full_url],
           );
         }
       } else {
@@ -256,7 +258,7 @@ export async function processEvent(eventData, req) {
             last_seen = CURRENT_TIMESTAMP,
             visit_count = visit_count + 1
           WHERE ip_address = ?`,
-          [ipAddress]
+          [ipAddress],
         );
       }
     }
