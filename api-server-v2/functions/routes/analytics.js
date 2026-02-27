@@ -163,7 +163,8 @@ router.get("/events/:eventType/by-time", async (req, res) => {
 router.get("/events/by-ip/grouped", async (req, res) => {
   try {
     const ip = req.query.ip || null;
-    const data = await getEventsByIpGrouped(ip);
+    const site_url = getUrlFilter(req);
+    const data = await getEventsByIpGrouped(ip, site_url);
     res.json({ data: data || [] });
   } catch (err) {
     console.error("[api/analytics] Failed to get events by time:", err);

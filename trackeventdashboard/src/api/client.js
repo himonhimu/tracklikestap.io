@@ -122,9 +122,9 @@ export const api = {
             : {}),
         }),
     ),
-  getEventsByIp: (ip, userId) =>
+  getEventsByIp: (ip, userId, siteUrl) =>
     request(
       "/api/analytics/events/by-ip/grouped" +
-        buildQuery({ ip, user_id: userId }),
+        buildQuery({ ip, user_id: userId, site_url: siteUrl }),
     ),
 };

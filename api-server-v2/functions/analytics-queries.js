@@ -307,12 +307,15 @@ export async function getRecentUniqueUsers(limit = 50, urlContains = null) {
   }
 }
 
-export async function getEventsByIpGrouped(ip = null) {
+export async function getEventsByIpGrouped(ip = null, site_url = null) {
   const db = getDb();
   if (!db) return null;
-
+  const url_query =
+    site_url && String(site_url).trim()
+      ? ` AND full_url LIKE "%${String(site_url).trim()}%"`
+      : "";
   try {
-    let sql = `SELECT * FROM events WHERE ip_address = ?`;
+    let sql = `SELECT * FROM events WHERE ip_address = ? ${url_query}`;
     const [rows] = await db.execute(sql, [ip]);
     return rows;
   } catch (err) {

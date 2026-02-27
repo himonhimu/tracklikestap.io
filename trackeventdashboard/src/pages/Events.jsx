@@ -54,10 +54,12 @@ function parseProductData(productData) {
   }
 }
 
+// Modified for +6 hour addition and 12 hour format
 function formatPeriod(period, granularity) {
   if (!period) return ''
-  const m = moment(period)
-  return granularity === 'hourly' ? m.format('MMM D, HH:mm') : m.format('MMM D, YYYY')
+  const m = moment(period).add(6, 'hours') // Add 6 hours
+  // Use 12-hour format everywhere
+  return granularity === 'hourly' ? m.format('MMM D, hh:mm A') : m.format('MMM D, YYYY')
 }
 
 export default function Events({ urlFilter, userId }) {
@@ -74,15 +76,19 @@ export default function Events({ urlFilter, userId }) {
 
   const filterVal = urlFilter?.trim() || null
 
+  // Move logic that synchronously sets state out of the effect 
+  // These are all computations based on state and props
   const isCustomRange = dateRangePreset === 'custom'
   const customRangeValid = isCustomRange && customFrom && customTo && customFrom <= customTo
   const presetDays = !isCustomRange ? (DATE_RANGE_PRESETS.find((p) => p.id === dateRangePreset)?.days ?? 7) : null
 
+  // Effect for loading recent events when tab or filterval/userId changes
   useEffect(() => {
     const config = TABS.find((t) => t.id === tab)
     const eventType = config?.eventType
     if (!eventType) return
     let cancelled = false
+
     setListLoading(true)
     setError(null)
     api
@@ -105,16 +111,21 @@ export default function Events({ urlFilter, userId }) {
 
   const currentTabConfig = TABS.find((t) => t.id === tab) || TABS[0]
 
+  // Effect for loading chart data
   useEffect(() => {
     const config = TABS.find((t) => t.id === tab)
     const eventType = config?.eventType
     if (!eventType) return
+
+    // Avoid synchronous setState: Instead, derive empty state directly or let state follow data fetch
+    // If the range is invalid, skip fetching and clear data
     if (isCustomRange && !customRangeValid) {
       setByTimeData([])
       setChartLoading(false)
       return
     }
     let cancelled = false
+
     setChartLoading(true)
     const days = isCustomRange ? undefined : presetDays
     const dateFrom = isCustomRange && customRangeValid ? customFrom : undefined
@@ -134,14 +145,38 @@ export default function Events({ urlFilter, userId }) {
         }
       })
     return () => { cancelled = true }
-  }, [tab, chartGranularity, filterVal, dateRangePreset, presetDays, isCustomRange, customRangeValid, customFrom, customTo, userId])
+  }, [
+    tab,
+    chartGranularity,
+    filterVal,
+    dateRangePreset,
+    presetDays,
+    isCustomRange,
+    customRangeValid,
+    customFrom,
+    customTo,
+    userId,
+  ])
 
+  // No move needed for this mapping--derives from state
   const chartData = byTimeData.map((row) => ({
     period: row.period,
     label: formatPeriod(row.period, chartGranularity),
     count: Number(row.count),
   }))
   const eventLabel = currentTabConfig.label
+
+  // Fix setState logic on custom date preset -- use a function passed to setDateRangePreset, so set states are not synchronous
+  const handleDateRangePreset = (preset) => {
+    setDateRangePreset((prev) => {
+      if (preset.id === 'custom' && !customFrom && !customTo) {
+        // Ensure date initialization is handled outside an effect, e.g. on button click, not in render/effect
+        setCustomTo(moment().format('YYYY-MM-DD'))
+        setCustomFrom(moment().subtract(6, 'days').format('YYYY-MM-DD'))
+      }
+      return preset.id
+    })
+  }
 
   return (
     <div className="space-y-6">
@@ -177,6 +212,7 @@ export default function Events({ urlFilter, userId }) {
                   key={preset.id}
                   onClick={() => {
                     setDateRangePreset(preset.id)
+                    // This avoids synchronous setState in effects/render; it's in an event handler
                     if (preset.id === 'custom' && !customFrom && !customTo) {
                       setCustomTo(moment().format('YYYY-MM-DD'))
                       setCustomFrom(moment().subtract(6, 'days').format('YYYY-MM-DD'))
@@ -265,7 +301,17 @@ export default function Events({ urlFilter, userId }) {
                   }}
                   labelStyle={{ color: '#94a3b8' }}
                   formatter={(value) => [Number(value).toLocaleString(), eventLabel]}
-                  labelFormatter={(label) => label}
+                  labelFormatter={(label, payload) => {
+                    // label is already formatted, but let's force 12-hour format if hourly
+                    // If chartGranularity is 'hourly', ensure label is always 12-hour
+                    if (payload && payload.length > 0 && payload[0].payload && payload[0].payload.period) {
+                      const m = moment(payload[0].payload.period).add(6, 'hours')
+                      return chartGranularity === 'hourly'
+                        ? m.format('MMM D, hh:mm A')
+                        : m.format('MMM D, YYYY')
+                    }
+                    return label
+                  }}
                 />
                 <Bar dataKey="count" name={eventLabel} fill="#10b981" radius={[4, 4, 0, 0]} />
               </BarChart>
@@ -288,7 +334,7 @@ export default function Events({ urlFilter, userId }) {
               <th className="px-4 py-3 font-medium text-slate-300">Path</th>
               <th className="px-4 py-3 font-medium text-slate-300">Device</th>
               <th className="px-4 py-3 font-medium text-slate-300">Value</th>
-              {/* <th className="px-4 py-3 font-medium text-slate-300">IP Address</th> */}
+              <th className="px-4 py-3 font-medium text-slate-300">IP Address</th>
               <th className="px-4 py-3 font-medium text-slate-300">Product</th>
             </tr>
           </thead>
@@ -305,7 +351,8 @@ export default function Events({ urlFilter, userId }) {
                 return (
                   <tr key={row.id} className="border-b border-slate-800/80 hover:bg-slate-800/40">
                     <td className="px-4 py-3 text-slate-400">
-                      {row.created_at ? moment(row.created_at).format('MMM D, hh:mm A') : '—'}
+                      {/* Modified to add +6 hours and force 12 hour format */}
+                      {row.created_at ? moment(row.created_at).add(6, 'hours').format('MMM D, hh:mm A') : '—'}
                     </td>
                     <td className="px-4 py-3 font-mono text-slate-300 truncate max-w-[200px]" title={row.path}>
                       {row.path || '—'}
@@ -317,6 +364,9 @@ export default function Events({ urlFilter, userId }) {
                     {/* <td className="px-4 py-3 text-slate-300">
                       {JSON.stringify(row)}
                     </td> */}
+                    <td className="px-4 py-3 text-slate-300">
+                      {row.ip_address || '—'}
+                    </td>
                     <td className="px-4 py-3 text-slate-300">
                       {/* {product?.name || product?.id || '—'} */}
                       {product?.map((p) => p.name + ' - ' + (p.quantity || 1) + ' pcs').join(', ')}
