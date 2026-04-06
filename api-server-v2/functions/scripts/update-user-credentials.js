@@ -12,11 +12,14 @@ import { updateCredentialById } from "../auth-queries.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: resolve(__dirname, "..", "..", ".env") });
+// node -e "import('bcrypt').then(async b=>{console.log(await b.default.hash('nextrestart',10));process.exit(0)})"
 
 async function main() {
   const [idArg, email, password] = process.argv.slice(2);
   if (!idArg || !email || !password) {
-    console.error("Usage: node functions/scripts/update-user-credentials.js <id_cr> <email> <password>");
+    console.error(
+      "Usage: node functions/scripts/update-user-credentials.js <id_cr> <email> <password>",
+    );
     process.exit(1);
   }
   const id = parseInt(idArg, 10);
@@ -45,7 +48,11 @@ async function main() {
     console.error("Error:", result.error || "Update failed");
     process.exit(1);
   }
-  console.log("Updated user_credentials id_cr=%s email=%s", id, normalizedEmail);
+  console.log(
+    "Updated user_credentials id_cr=%s email=%s",
+    id,
+    normalizedEmail,
+  );
 }
 
 main().catch((err) => {
