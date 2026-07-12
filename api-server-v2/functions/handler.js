@@ -10,6 +10,8 @@
 import { getDb } from "./db.js";
 import { sendFbEvent } from "./fb-pixel.js";
 import { getClientIp, detectDeviceType, getIpGeolocation } from "./utils.js";
+import { incrementEventCount } from "./event-counts.js";
+import { incrementReferralCount } from "./referral-counts.js";
 import https from "https";
 
 /**
@@ -185,6 +187,10 @@ export async function processEvent(eventData, req) {
           event.currency || null,
         ],
       );
+
+      // Keep Overview totals O(1) — increment summary, don't COUNT(*) later
+      await incrementEventCount(db, event);
+      await incrementReferralCount(db, event);
 
       // Check if IP exists in unique_users
       // Check if there is a unique user with this IP and a full_url that matches the site's domain (host)

@@ -226,34 +226,14 @@ export default function Users({ urlFilter, userId }) {
         setByLocation(loc?.data ?? []);
         setRecent(rec?.data ?? []);
 
-        // Fetch events for recent IPs (for event stats)
-        if (api.getEventsByIp && Array.isArray(rec?.data) && rec.data.length > 0) {
-          // Group unique IPs for requests
-          const recentIPs = rec.data.map((user) => user.ip_address).filter(Boolean);
-          // Get unique IPs only
-          const uniqueIPs = Array.from(new Set(recentIPs));
-          // Limit parallel fetches - batch for large lists, or fetch all at once
-          // Here we just Promise.all all, safe for up to 50 users
+        // Batch event-type counts for recent IPs (single query, not N+1)
+        if (api.getEventStatsByIps && Array.isArray(rec?.data) && rec.data.length > 0) {
+          const uniqueIPs = Array.from(
+            new Set(rec.data.map((user) => user.ip_address).filter(Boolean)),
+          );
           try {
-            const ipEventsArr = await Promise.all(uniqueIPs.map(ip =>
-              api.getEventsByIp(ip, userId, userId).then(resp => ({
-                ip,
-                events: resp?.data || [],
-              }))
-            ));
-            // console.log(ipEventsArr);
-            const eventStats = {};
-            for (const { ip, events } of ipEventsArr) {
-              const stat = { pageview: 0, view_item: 0, add_to_cart: 0, purchase: 0 };
-              for (const ev of events) {
-                if (ev.event_type === "PageView") stat.pageview += 1;
-                if (ev.event_type === "ViewItem") stat.view_item += 1;
-                if (ev.event_type === "AddToCart") stat.add_to_cart += 1;
-                if (ev.event_type === "Purchase") stat.purchase += 1;
-              }
-              eventStats[ip] = stat;
-            }
-            setRecentEventStats(eventStats);
+            const statsRes = await api.getEventStatsByIps(uniqueIPs, userId, userId);
+            setRecentEventStats(statsRes?.data || {});
           } catch (e) {
             console.error(e);
             setRecentEventStats({});
@@ -281,28 +261,12 @@ export default function Users({ urlFilter, userId }) {
     try {
       const rec = await api.getRecentUsers(50, filterVal, userId);
       setRecent(rec?.data ?? []);
-      // Also reload event stats for these recent users
-      if (api.getEventsByIp && Array.isArray(rec?.data) && rec.data.length > 0) {
-        const recentIPs = rec.data.map((user) => user.ip_address).filter(Boolean);
-        const uniqueIPs = Array.from(new Set(recentIPs));
-        const ipEventsArr = await Promise.all(uniqueIPs.map(ip =>
-          api.getEventsByIp(ip, userId, userId).then(resp => ({
-            ip,
-            events: resp?.data || [],
-          }))
-        ));
-        const eventStats = {};
-        for (const { ip, events } of ipEventsArr) {
-          const stat = { pageview: 0, view_item: 0, add_to_cart: 0, purchase: 0 };
-          for (const ev of events) {
-            if (ev.event_type === "PageView") stat.pageview += 1;
-            if (ev.event_type === "ViewItem") stat.view_item += 1;
-            if (ev.event_type === "AddToCart") stat.add_to_cart += 1;
-            if (ev.event_type === "Purchase") stat.purchase += 1;
-          }
-          eventStats[ip] = stat;
-        }
-        setRecentEventStats(eventStats);
+      if (api.getEventStatsByIps && Array.isArray(rec?.data) && rec.data.length > 0) {
+        const uniqueIPs = Array.from(
+          new Set(rec.data.map((user) => user.ip_address).filter(Boolean)),
+        );
+        const statsRes = await api.getEventStatsByIps(uniqueIPs, userId, userId);
+        setRecentEventStats(statsRes?.data || {});
       } else {
         setRecentEventStats({});
       }

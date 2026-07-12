@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
-import { FiActivity, FiUsers, FiShoppingCart, FiSettings } from 'react-icons/fi'
+import { FiActivity, FiUsers, FiShoppingCart, FiSettings, FiShare2 } from 'react-icons/fi'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Overview from './pages/Overview'
 import Users from './pages/Users'
 import Events from './pages/Events'
+import Referrals from './pages/Referrals'
 import ManageUsers from './pages/ManageUsers'
 import { api } from './api/client'
 
@@ -13,6 +14,7 @@ const BASE_NAV = [
   { id: 'overview', label: 'Overview', icon: FiActivity },
   { id: 'users', label: 'Users', icon: FiUsers },
   { id: 'events', label: 'Events', icon: FiShoppingCart },
+  { id: 'referrals', label: 'Referrals', icon: FiShare2 },
 ]
 
 function Dashboard() {
@@ -60,6 +62,7 @@ function Dashboard() {
       {tab === 'overview' && <Overview urlFilter={urlFilter} userId={userId} />}
       {tab === 'users' && <Users urlFilter={urlFilter} userId={userId} />}
       {tab === 'events' && <Events urlFilter={urlFilter} userId={userId} />}
+      {tab === 'referrals' && <Referrals urlFilter={urlFilter} userId={userId} />}
       {tab === 'manageUsers' && <ManageUsers />}
     </Layout>
   )

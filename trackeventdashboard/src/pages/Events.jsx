@@ -40,6 +40,17 @@ const DATE_RANGE_PRESETS = [
   { id: 'custom', label: 'Custom' },
 ]
 
+const REFERRAL_FILTERS = [
+  'All',
+  'Google',
+  'Facebook',
+  'YouTube',
+  'TikTok',
+  'Twitter/X',
+  'Direct',
+  'Other',
+]
+
 const GRANULARITY_OPTIONS = [
   { id: 'hourly', label: 'Hourly' },
   { id: 'daily', label: 'Daily' },
@@ -73,8 +84,12 @@ export default function Events({ urlFilter, userId }) {
   const [chartGranularity, setChartGranularity] = useState('daily')
   const [byTimeData, setByTimeData] = useState([])
   const [chartLoading, setChartLoading] = useState(false)
+  const [archives, setArchives] = useState([])
+  const [referralFilter, setReferralFilter] = useState('All')
 
   const filterVal = urlFilter?.trim() || null
+  const isPurchaseTab = tab === 'purchase'
+  const listLimit = isPurchaseTab ? 300 : 50
 
   // Move logic that synchronously sets state out of the effect 
   // These are all computations based on state and props
@@ -82,17 +97,49 @@ export default function Events({ urlFilter, userId }) {
   const customRangeValid = isCustomRange && customFrom && customTo && customFrom <= customTo
   const presetDays = !isCustomRange ? (DATE_RANGE_PRESETS.find((p) => p.id === dateRangePreset)?.days ?? 7) : null
 
-  // Effect for loading recent events when tab or filterval/userId changes
+  const listDateFrom =
+    isCustomRange && customRangeValid
+      ? customFrom
+      : !isCustomRange && presetDays
+        ? moment().subtract(presetDays - 1, 'days').format('YYYY-MM-DD')
+        : undefined
+  const listDateTo =
+    isCustomRange && customRangeValid
+      ? customTo
+      : !isCustomRange && presetDays
+        ? moment().format('YYYY-MM-DD')
+        : undefined
+
+  useEffect(() => {
+    api.getArchives?.()
+      .then((res) => setArchives(res?.data ?? []))
+      .catch(() => setArchives([]))
+  }, [])
+
+  // Effect for loading recent events when tab / filter / date range changes
   useEffect(() => {
     const config = TABS.find((t) => t.id === tab)
     const eventType = config?.eventType
     if (!eventType) return
+    if (isCustomRange && !customRangeValid) {
+      setRecentEvents([])
+      setListLoading(false)
+      return
+    }
     let cancelled = false
 
     setListLoading(true)
     setError(null)
     api
-      .getEventsByType(eventType, 50, filterVal, userId)
+      .getEventsByType(
+        eventType,
+        listLimit,
+        filterVal,
+        userId,
+        listDateFrom,
+        listDateTo,
+        isPurchaseTab ? referralFilter : 'All',
+      )
       .then((res) => {
         if (!cancelled) {
           setRecentEvents(res?.data ?? [])
@@ -107,7 +154,18 @@ export default function Events({ urlFilter, userId }) {
         }
       })
     return () => { cancelled = true }
-  }, [tab, filterVal, userId])
+  }, [
+    tab,
+    filterVal,
+    userId,
+    listDateFrom,
+    listDateTo,
+    isCustomRange,
+    customRangeValid,
+    listLimit,
+    isPurchaseTab,
+    referralFilter,
+  ])
 
   const currentTabConfig = TABS.find((t) => t.id === tab) || TABS[0]
 
@@ -184,6 +242,15 @@ export default function Events({ urlFilter, userId }) {
       {filterVal && (
         <p className="text-sm text-slate-400">
           Filtering by URL/domain: <span className="font-medium text-emerald-400">&quot;{filterVal}&quot;</span>
+        </p>
+      )}
+      {archives.length > 0 && (
+        <p className="text-xs text-slate-500">
+          Archived months available:{' '}
+          <span className="text-slate-400">
+            {archives.map((a) => a.yearMonth).join(', ')}
+          </span>
+          {' '}— pick a custom date range in an archived month to load that data.
         </p>
       )}
 
@@ -326,51 +393,107 @@ export default function Events({ urlFilter, userId }) {
           <span>{error}</span>
         </div>
       )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-slate-200">
+          Recent {eventLabel}
+          {isPurchaseTab ? (
+            <span className="ml-2 text-sm font-normal text-slate-500">
+              (up to {listLimit})
+            </span>
+          ) : null}
+        </h2>
+        {isPurchaseTab && (
+          <label className="flex items-center gap-2 text-sm text-slate-400">
+            Referral
+            <select
+              value={referralFilter}
+              onChange={(e) => setReferralFilter(e.target.value)}
+              className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 focus:border-emerald-500/50 focus:outline-none"
+            >
+              {REFERRAL_FILTERS.map((src) => (
+                <option key={src} value={src}>
+                  {src}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+
       <div className="overflow-hidden rounded-xl border border-slate-800">
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-slate-800 bg-slate-900/80">
+              <th className="px-4 py-3 font-medium text-slate-300">SL</th>
               <th className="px-4 py-3 font-medium text-slate-300">Time</th>
               <th className="px-4 py-3 font-medium text-slate-300">Path</th>
               <th className="px-4 py-3 font-medium text-slate-300">Device</th>
               <th className="px-4 py-3 font-medium text-slate-300">Value</th>
               <th className="px-4 py-3 font-medium text-slate-300">IP Address</th>
+              {isPurchaseTab && (
+                <th className="px-4 py-3 font-medium text-slate-300">Referral</th>
+              )}
               <th className="px-4 py-3 font-medium text-slate-300">Product</th>
             </tr>
           </thead>
           <tbody>
             {listLoading ? (
               <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-slate-500">
+                <td
+                  colSpan={isPurchaseTab ? 7 : 6}
+                  className="px-4 py-12 text-center text-slate-500"
+                >
                   <FiLoader className="mx-auto h-6 w-6 animate-spin" />
                 </td>
               </tr>
+            ) : recentEvents.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={isPurchaseTab ? 7 : 6}
+                  className="px-4 py-12 text-center text-slate-500"
+                >
+                  No events found
+                </td>
+              </tr>
             ) : (
-              recentEvents.map((row) => {
+              recentEvents.map((row, index) => {
                 const product = parseProductData(row.product_data)
+                const productLabel = Array.isArray(product)
+                  ? product
+                    .map((p) => `${p.name || p.id || 'Item'} - ${p.quantity || 1} pcs`)
+                    .join(', ')
+                  : product?.name || product?.id || '—'
                 return (
+
                   <tr key={row.id} className="border-b border-slate-800/80 hover:bg-slate-800/40">
+                    <td className="px-4 py-3 text-slate-400">{index + 1}</td>
                     <td className="px-4 py-3 text-slate-400">
-                      {/* Modified to add +6 hours and force 12 hour format */}
-                      {row.created_at ? moment(row.created_at).add(6, 'hours').format('MMM D, hh:mm A') : '—'}
+                      {row.created_at
+                        ? moment(row.created_at).add(6, 'hours').format('MMM D, hh:mm A')
+                        : '—'}
                     </td>
-                    <td className="px-4 py-3 font-mono text-slate-300 truncate max-w-[200px]" title={row.path}>
+                    <td
+                      className="max-w-[200px] truncate px-4 py-3 font-mono text-slate-300"
+                      title={row.path}
+                    >
                       {row.path || '—'}
                     </td>
                     <td className="px-4 py-3 text-slate-300">{row.device_type || '—'}</td>
                     <td className="px-4 py-3 text-emerald-400">
-                      {row.value != null ? `${row.currency || ''} ${Number(row.value).toFixed(2)}` : '—'}
+                      {row.value != null
+                        ? `${row.currency || ''} ${Number(row.value).toFixed(2)}`
+                        : '—'}
                     </td>
-                    {/* <td className="px-4 py-3 text-slate-300">
-                      {JSON.stringify(row)}
-                    </td> */}
-                    <td className="px-4 py-3 text-slate-300">
-                      {row.ip_address || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-300">
-                      {/* {product?.name || product?.id || '—'} */}
-                      {product?.map((p) => p.name + ' - ' + (p.quantity || 1) + ' pcs').join(', ')}
-                    </td>
+                    <td className="px-4 py-3 text-slate-300">{row.ip_address || '—'}</td>
+                    {isPurchaseTab && (
+                      <td className="px-4 py-3">
+                        <span className="rounded-md bg-slate-800 px-2 py-0.5 text-xs font-medium text-emerald-400">
+                          {row.referral_source || '—'}
+                        </span>
+                      </td>
+                    )}
+                    <td className="px-4 py-3 text-slate-300">{productLabel}</td>
                   </tr>
                 )
               })

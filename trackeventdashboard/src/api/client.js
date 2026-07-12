@@ -96,10 +96,26 @@ export const api = {
       "/api/analytics/events/add-to-cart" +
         buildQuery({ limit, url_contains: urlContains, user_id: userId }),
     ),
-  getEventsByType: (eventType, limit = 50, urlContains, userId) =>
+  getEventsByType: (
+    eventType,
+    limit = 50,
+    urlContains,
+    userId,
+    dateFrom,
+    dateTo,
+    referral,
+  ) =>
     request(
       `/api/analytics/events/${encodeURIComponent(eventType)}` +
-        buildQuery({ limit, url_contains: urlContains, user_id: userId }),
+        buildQuery({
+          limit,
+          url_contains: urlContains,
+          user_id: userId,
+          ...(dateFrom && dateTo
+            ? { date_from: dateFrom, date_to: dateTo }
+            : {}),
+          ...(referral && referral !== "All" ? { referral } : {}),
+        }),
     ),
   getEventsByTime: (
     eventType,
@@ -122,9 +138,31 @@ export const api = {
             : {}),
         }),
     ),
+  getArchives: () => request("/api/analytics/archives"),
+  getReferrals: (urlContains, userId, days = 30, dateFrom, dateTo) =>
+    request(
+      "/api/analytics/referrals" +
+        buildQuery({
+          url_contains: urlContains,
+          user_id: userId,
+          ...(dateFrom && dateTo
+            ? { date_from: dateFrom, date_to: dateTo }
+            : { days: days === 0 ? "all" : days }),
+        }),
+    ),
   getEventsByIp: (ip, userId, siteUrl) =>
     request(
       "/api/analytics/events/by-ip/grouped" +
         buildQuery({ ip, user_id: userId, site_url: siteUrl }),
+    ),
+  /** One request for event-type counts across many IPs (Users page). */
+  getEventStatsByIps: (ips, userId, siteUrl) =>
+    request(
+      "/api/analytics/events/stats-by-ips" +
+        buildQuery({
+          ips: Array.isArray(ips) ? ips.join(",") : ips,
+          user_id: userId,
+          site_url: siteUrl,
+        }),
     ),
 };

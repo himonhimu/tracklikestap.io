@@ -9,6 +9,10 @@
     "start": "node server.js",
     "prod": "NODE_ENV=production node server.js",
     "init-db": "node functions/scripts/init-db.js",
+    "backfill-event-counts": "node functions/scripts/backfill-event-counts.js",
+    "archive-month": "node functions/scripts/archive-month.js",
+    "archive-months-range": "node functions/scripts/archive-months-range.js",
+    "backfill-referral-counts": "node functions/scripts/backfill-referral-counts.js",
     "add-auth": "node functions/scripts/add-auth-to-user-credentials.js"
   },
   "dependencies": {
