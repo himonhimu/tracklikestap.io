@@ -88,29 +88,43 @@ function hashString(str) {
   }
 }
 
-/**
- * Generate a random email address for fallback.
- */
-function getRandomEmail() {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let user = "";
-  for (let i = 0; i < 10; i++) {
-    user += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return `${user}@example.com`;
+function isSha256(value) {
+  return /^[a-f0-9]{64}$/i.test(String(value || "").trim());
 }
 
-/**
- * Generate a random phone number for fallback.
- */
-function getRandomPhone() {
-  // Example random Bangladeshi number: +8801XXXXXXXXX
-  const prefix = "+8801";
-  let num = "";
-  for (let i = 0; i < 9; i++) {
-    num += Math.floor(Math.random() * 10);
-  }
-  return `${prefix}${num}`;
+function hashOrKeep(value) {
+  if (value == null) return null;
+  const str = String(value).trim();
+  if (!str) return null;
+  if (isSha256(str)) return str.toLowerCase();
+  return hashString(str);
+}
+
+/** Meta phone: digits with country code. 017XXXXXXXX → 88017XXXXXXXX. */
+function toMetaPhone(phone) {
+  if (isSha256(phone)) return String(phone).trim().toLowerCase();
+  let digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (digits.startsWith("880")) return digits;
+  if (digits.startsWith("0")) return `88${digits}`;
+  if (digits.length === 10 && digits.startsWith("1")) return `880${digits}`;
+  return digits;
+}
+
+function firstNameValue(name) {
+  if (isSha256(name)) return String(name).trim().toLowerCase();
+  const part = String(name || "").trim().split(/\s+/)[0] || "";
+  return part.toLowerCase();
+}
+
+function isPlaceholderEmail(email) {
+  const value = String(email || "").trim().toLowerCase();
+  return (
+    !value ||
+    value.endsWith("@tracking.com") ||
+    value.endsWith("@example.com")
+  );
 }
 
 /**
@@ -255,10 +269,10 @@ export async function sendFbEvent(eventData, req) {
       external_id: eventData.external_id,
     };
 
-    // Attach _fbp/_fbc if available
-    const fbp = getFbpFromCookies(req);
+    // Attach _fbp/_fbc if available (cookie, then the value forwarded by the store)
+    const fbp = getFbpFromCookies(req) || eventData._fbp;
     if (fbp) userData.fbp = fbp;
-    const fbc = getFbcFromCookies(req);
+    const fbc = getFbcFromCookies(req) || eventData._fbc;
     if (fbc) userData.fbc = fbc;
 
     // Optionally warn about missing cookies (via debug log)
@@ -267,29 +281,29 @@ export async function sendFbEvent(eventData, req) {
       console.log("[fb-pixel] No cookie header found in request");
     }
 
-    // Optionally provide PII for matching, hashed
-    //  console.log("[em, ph]", eventData.email, eventData.phone);
+    // Real customer info only. Placeholder emails/phones do not match Meta users.
+    const phoneRaw = eventData.phone || eventData.customer_phone;
+    const emailRaw = eventData.email;
+    const nameRaw = eventData.fn || eventData.first_name || eventData.customer_name;
+    const externalRaw =
+      eventData.external_id || eventData.customer_id || eventData.order_id;
 
-    // Generate random replacements if missing
-    let emailToUse = eventData.email;
-    let phoneToUse = eventData.phone;
-
-    if (!emailToUse) {
-      emailToUse = getRandomEmail();
-      emailToUse = hashString(emailToUse);
+    if (phoneRaw) {
+      const normalized = isSha256(phoneRaw) ? phoneRaw : toMetaPhone(phoneRaw);
+      const hashedPhone = hashOrKeep(normalized);
+      if (hashedPhone) userData.ph = hashedPhone;
     }
-    if (!phoneToUse) {
-      phoneToUse = getRandomPhone();
-      phoneToUse = hashString(phoneToUse);
-    }
-
-    if (emailToUse) {
-      const hashedEmail = emailToUse;
+    if (emailRaw && !isPlaceholderEmail(emailRaw)) {
+      const hashedEmail = hashOrKeep(emailRaw);
       if (hashedEmail) userData.em = hashedEmail;
     }
-    if (phoneToUse) {
-      const hashedPhone = phoneToUse;
-      if (hashedPhone) userData.ph = hashedPhone;
+    if (nameRaw) {
+      const hashedName = hashOrKeep(firstNameValue(nameRaw));
+      if (hashedName) userData.fn = hashedName;
+    }
+    if (externalRaw && String(externalRaw) !== "0") {
+      const hashedExternal = hashOrKeep(String(externalRaw));
+      if (hashedExternal) userData.external_id = hashedExternal;
     }
 
     // Compose event payload as required by Facebook CAPI
