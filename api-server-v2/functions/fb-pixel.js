@@ -7,7 +7,49 @@
  */
 
 import { createHash } from "crypto";
+import { mkdir, readFile, writeFile } from "fs/promises";
+import { dirname, resolve } from "path";
+import { fileURLToPath } from "url";
 import { getDb } from "./db.js";
+
+const FB_PIXEL_ERROR_LOG = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "logs",
+  "fb-pixel-errors.log",
+);
+const FB_PIXEL_ERROR_LOG_LIMIT = 50;
+let fbPixelErrorLogQueue = Promise.resolve();
+
+function formatFbMessage(msg) {
+  if (typeof msg === "string") return msg.replace(/\s+/g, " ").trim();
+  if (msg && typeof msg === "object") {
+    const text = msg.message || JSON.stringify(msg);
+    return String(text).replace(/\s+/g, " ").trim();
+  }
+  return String(msg);
+}
+
+/** Append one line and keep only the last 50 entries. Not printed to the terminal. */
+function logFbPixelError(message) {
+  const line = `${new Date().toISOString()} [fb-pixel] ${message}`;
+  fbPixelErrorLogQueue = fbPixelErrorLogQueue
+    .then(async () => {
+      await mkdir(dirname(FB_PIXEL_ERROR_LOG), { recursive: true });
+      let existing = "";
+      try {
+        existing = await readFile(FB_PIXEL_ERROR_LOG, "utf8");
+      } catch (err) {
+        if (err.code !== "ENOENT") throw err;
+      }
+      const lines = existing.split("\n").filter((entry) => entry.length > 0);
+      lines.push(line);
+      const kept = lines.slice(-FB_PIXEL_ERROR_LOG_LIMIT);
+      await writeFile(FB_PIXEL_ERROR_LOG, `${kept.join("\n")}\n`, "utf8");
+    })
+    .catch(() => {});
+}
+
 // Simple in-memory cache for getUserCredentialsByPixelId results
 const userCredentialsCache = new Map();
 
@@ -361,14 +403,13 @@ export async function sendFbEvent(eventData, req) {
 
     // console.log(result);
 
-    // Print Facebook warnings and result to the console if present
     if (result.messages?.length > 0) {
-      console.warn("[fb-pixel] Facebook warnings:", result.messages);
-      result.messages.forEach((msg) => {
-        if (msg.message) {
-          console.warn(`[fb-pixel] Warning: ${msg.message}`);
-        }
-      });
+      const messages = result.messages.map(formatFbMessage).filter(Boolean);
+      logFbPixelError(
+        messages.length
+          ? `Facebook warnings: ${messages.join(" | ")}`
+          : "Facebook warnings: (empty message)",
+      );
     }
 
     if (result.events_received === 0) {

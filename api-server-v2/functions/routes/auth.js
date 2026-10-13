@@ -1,7 +1,7 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import { getCredentialByEmail, getCredentialById, getCredentialByIdForAdmin, listUsers, updateCredentialById } from "../auth-queries.js";
+import { getCredentialByEmail, getCredentialById, getCredentialByIdForAdmin, listUsers, updateCredentialById, createCredential } from "../auth-queries.js";
 import { requireAuth } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -88,6 +88,42 @@ router.get("/users/:id", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("[auth] get user error:", err);
     return res.status(500).json({ error: "Failed to get user" });
+  }
+});
+
+/**
+ * POST /api/auth/users
+ * super_admin only. Body: { email, password, role?, pixel_id?, access_token?, test_code?, site_url? }
+ */
+router.post("/users", requireAuth, async (req, res) => {
+  try {
+    if (req.user?.role !== "super_admin") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const { email, password, role, pixel_id, access_token, test_code, site_url } = req.body || {};
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    if (!normalizedEmail) return res.status(400).json({ error: "Email is required" });
+    if (!password || String(password).length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters" });
+    }
+    const password_hash = await bcrypt.hash(String(password), 10);
+    const result = await createCredential({
+      email: normalizedEmail,
+      password_hash,
+      role: role || "user",
+      pixel_id,
+      access_token,
+      test_code,
+      site_url,
+    });
+    if (!result.created) {
+      const status = result.error === "Email already in use" ? 409 : 400;
+      return res.status(status).json({ error: result.error || "Create failed" });
+    }
+    return res.status(201).json({ data: result.user });
+  } catch (err) {
+    console.error("[auth] create user error:", err);
+    return res.status(500).json({ error: "Create failed" });
   }
 });
 

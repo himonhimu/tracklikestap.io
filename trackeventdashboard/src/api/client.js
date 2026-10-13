@@ -55,6 +55,11 @@ export const api = {
     }),
   getMe: () => request("/api/auth/me"),
   getUsers: () => request("/api/auth/users"),
+  createUser: (body) =>
+    request("/api/auth/users", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   getUser: (id) => request(`/api/auth/users/${id}`),
   updateUser: (id, body) =>
     request(`/api/auth/users/${id}`, {

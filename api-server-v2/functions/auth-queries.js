@@ -147,3 +147,39 @@ export async function updateCredentialById(idCr, updates) {
     return { updated: false, error: "Update failed" };
   }
 }
+
+/**
+ * Create a user_credentials row. Email and password_hash are required.
+ * @param {{ email: string, password_hash: string, role?: string, pixel_id?: string, access_token?: string, test_code?: string, site_url?: string }} data
+ * @returns {Promise<{ created: boolean, user?: { id_cr: number, email: string, role: string, site_url: string|null }, error?: string }>}
+ */
+export async function createCredential(data) {
+  const db = getDb();
+  if (!db) return { created: false, error: "Database unavailable" };
+  const email = String(data.email || "").trim().toLowerCase();
+  if (!email) return { created: false, error: "Email cannot be empty" };
+  if (!data.password_hash) return { created: false, error: "Password is required" };
+  const role = String(data.role || "user").trim();
+  if (!ALLOWED_ROLES.includes(role)) return { created: false, error: "Invalid role" };
+  const pixel_id = data.pixel_id ? String(data.pixel_id) : null;
+  const access_token = data.access_token ? String(data.access_token) : null;
+  const test_code = data.test_code ? String(data.test_code) : null;
+  const site_url = data.site_url ? String(data.site_url) : null;
+  try {
+    const [result] = await db.execute(
+      `INSERT INTO user_credentials (email, password_hash, role, pixel_id, access_token, test_code, site_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [email, data.password_hash, role, pixel_id, access_token, test_code, site_url]
+    );
+    return {
+      created: true,
+      user: { id_cr: result.insertId, email, role, site_url },
+    };
+  } catch (err) {
+    if (err.code === "ER_DUP_ENTRY") {
+      return { created: false, error: "Email already in use" };
+    }
+    console.error("[auth] createCredential error:", err);
+    return { created: false, error: "Create failed" };
+  }
+}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { FiActivity, FiUsers, FiShoppingCart, FiSettings, FiShare2 } from 'react-icons/fi'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
@@ -35,7 +35,7 @@ function Dashboard() {
 
   const userId = isSuperAdmin && selectedUser ? selectedUser.id_cr : null
 
-  useEffect(() => {
+  const loadUsers = useCallback(() => {
     if (!isSuperAdmin) return
     setUsersLoading(true)
     api.getUsers().then((res) => {
@@ -43,6 +43,10 @@ function Dashboard() {
       setUsersLoading(false)
     }).catch(() => setUsersLoading(false))
   }, [isSuperAdmin])
+
+  useEffect(() => {
+    loadUsers()
+  }, [loadUsers])
 
   return (
     <Layout
@@ -63,7 +67,7 @@ function Dashboard() {
       {tab === 'users' && <Users urlFilter={urlFilter} userId={userId} />}
       {tab === 'events' && <Events urlFilter={urlFilter} userId={userId} />}
       {tab === 'referrals' && <Referrals urlFilter={urlFilter} userId={userId} />}
-      {tab === 'manageUsers' && <ManageUsers />}
+      {tab === 'manageUsers' && <ManageUsers onChanged={loadUsers} />}
     </Layout>
   )
 }

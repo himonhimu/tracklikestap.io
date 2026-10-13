@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { FiEdit2, FiLoader, FiAlertCircle, FiX } from 'react-icons/fi'
+import { FiEdit2, FiLoader, FiAlertCircle, FiX, FiPlus } from 'react-icons/fi'
 import { api } from '../api/client'
 
 const ROLES = [
@@ -7,20 +7,23 @@ const ROLES = [
   { value: 'super_admin', label: 'Super Admin' },
 ]
 
-export default function ManageUsers() {
+const EMPTY_FORM = {
+  email: '',
+  password: '',
+  role: 'user',
+  pixel_id: '',
+  access_token: '',
+  test_code: '',
+  site_url: '',
+}
+
+export default function ManageUsers({ onChanged }) {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [modalMode, setModalMode] = useState(null)
   const [editingId, setEditingId] = useState(null)
-  const [form, setForm] = useState({
-    email: '',
-    password: '',
-    role: 'user',
-    pixel_id: '',
-    access_token: '',
-    test_code: '',
-    site_url: '',
-  })
+  const [form, setForm] = useState(EMPTY_FORM)
   const [saveError, setSaveError] = useState(null)
   const [saving, setSaving] = useState(false)
 
@@ -41,10 +44,18 @@ export default function ManageUsers() {
     return () => { cancelled = true }
   }, [])
 
+  function openCreate() {
+    setModalMode('create')
+    setEditingId(null)
+    setSaveError(null)
+    setForm(EMPTY_FORM)
+  }
+
   function openEdit(id) {
+    setModalMode('edit')
     setEditingId(id)
     setSaveError(null)
-    setForm({ email: '', password: '', role: 'user', pixel_id: '', access_token: '', test_code: '', site_url: '' })
+    setForm(EMPTY_FORM)
     api.getUser(id).then((res) => {
       const d = res?.data
       if (d) {
@@ -61,7 +72,8 @@ export default function ManageUsers() {
     }).catch(() => setSaveError('Failed to load user'))
   }
 
-  function closeEdit() {
+  function closeModal() {
+    setModalMode(null)
     setEditingId(null)
     setSaveError(null)
   }
@@ -69,6 +81,10 @@ export default function ManageUsers() {
   function handleSubmit(e) {
     e.preventDefault()
     setSaveError(null)
+    if (modalMode === 'create' && form.password.trim().length < 6) {
+      setSaveError('Password must be at least 6 characters')
+      return
+    }
     setSaving(true)
     const payload = {
       email: form.email.trim() || undefined,
@@ -79,11 +95,29 @@ export default function ManageUsers() {
       site_url: form.site_url.trim() || undefined,
     }
     if (form.password.trim()) payload.password = form.password
+
+    if (modalMode === 'create') {
+      api.createUser(payload).then((res) => {
+        const created = res?.data
+        if (created) {
+          setUsers((prev) => [...prev, created].sort((a, b) => a.id_cr - b.id_cr))
+        }
+        onChanged?.()
+        closeModal()
+        setSaving(false)
+      }).catch((err) => {
+        setSaveError(err.body?.error || err.message || 'Create failed')
+        setSaving(false)
+      })
+      return
+    }
+
     api.updateUser(editingId, payload).then(() => {
       setUsers((prev) =>
         prev.map((u) => (u.id_cr === editingId ? { ...u, email: payload.email ?? u.email, role: payload.role ?? u.role, site_url: payload.site_url ?? u.site_url } : u))
       )
-      closeEdit()
+      onChanged?.()
+      closeModal()
       setSaving(false)
     }).catch((err) => {
       setSaveError(err.body?.error || err.message || 'Update failed')
@@ -110,8 +144,20 @@ export default function ManageUsers() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Manage users</h1>
-      <p className="text-sm text-slate-400">Edit user credentials and settings. Only super_admin can access this page.</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Manage users</h1>
+          <p className="mt-1 text-sm text-slate-400">Add users and edit credentials. Only a super admin can access this page.</p>
+        </div>
+        <button
+          type="button"
+          onClick={openCreate}
+          className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+        >
+          <FiPlus className="h-4 w-4" />
+          Add user
+        </button>
+      </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-800">
         <table className="w-full text-left text-sm">
@@ -147,17 +193,19 @@ export default function ManageUsers() {
         </table>
       </div>
 
-      {editingId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={closeEdit}>
+      {modalMode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={closeModal}>
           <div
-            className="w-full max-w-lg rounded-xl border border-slate-700 bg-slate-900 p-6 shadow-xl"
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">Edit user #{editingId}</h2>
+              <h2 className="text-lg font-semibold text-white">
+                {modalMode === 'create' ? 'Add user' : `Edit user #${editingId}`}
+              </h2>
               <button
                 type="button"
-                onClick={closeEdit}
+                onClick={closeModal}
                 className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
               >
                 <FiX className="h-5 w-5" />
@@ -181,12 +229,16 @@ export default function ManageUsers() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-400">New password</label>
+                <label className="mb-1 block text-sm font-medium text-slate-400">
+                  {modalMode === 'create' ? 'Password' : 'New password'}
+                </label>
                 <input
                   type="password"
                   value={form.password}
                   onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                  placeholder="Leave blank to keep current"
+                  required={modalMode === 'create'}
+                  minLength={modalMode === 'create' ? 6 : undefined}
+                  placeholder={modalMode === 'create' ? 'At least 6 characters' : 'Leave blank to keep current'}
                   className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white placeholder-slate-500 focus:border-emerald-500/50 focus:outline-none"
                 />
               </div>
@@ -245,7 +297,7 @@ export default function ManageUsers() {
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={closeEdit}
+                  onClick={closeModal}
                   className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800"
                 >
                   Cancel
@@ -255,7 +307,7 @@ export default function ManageUsers() {
                   disabled={saving}
                   className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
                 >
-                  {saving ? 'Saving…' : 'Save'}
+                  {saving ? 'Saving…' : modalMode === 'create' ? 'Add user' : 'Save'}
                 </button>
               </div>
             </form>
